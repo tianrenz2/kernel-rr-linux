@@ -305,6 +305,22 @@ EXPORT_SYMBOL_GPL(supported_xcr0);
 
 static struct kmem_cache *x86_emulator_cache;
 
+bool handled_hype = false;
+
+void kvm_start_hype(struct kvm_vcpu *vcpu)
+{
+	vcpu->in_hype = true;
+}
+
+void kvm_stop_hype(struct kvm_vcpu *vcpu)
+{
+	int i;
+	vcpu->in_hype = false;
+
+	printk(KERN_WARNING "==== Finished Hype ====\n");
+}
+
+
 /*
  * When called, it means the previous get/set msr reached an invalid msr.
  * Return true if we want to ignore/silent this failed msr access.
@@ -9094,6 +9110,19 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	}
 
 	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
+		if (!handled_hype) {
+			printk(KERN_WARNING "unknown hypercall %lu\n", nr);
+			vcpu->run->exit_reason = 999;
+			handled_hype = true;
+
+			if (!vcpu->in_hype){
+				kvm_start_hype(vcpu);
+			} else {
+				kvm_stop_hype(vcpu);
+			}
+
+			return 0;
+		}
 		ret = -KVM_EPERM;
 		goto out;
 	}

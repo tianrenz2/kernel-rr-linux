@@ -368,6 +368,8 @@ struct kvm_vcpu {
 	 */
 	struct kvm_memory_slot *last_used_slot;
 	u64 last_used_slot_gen;
+
+	bool in_hype;
 };
 
 /*
