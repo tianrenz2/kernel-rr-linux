@@ -39,6 +39,9 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
 	int i;
 
+	printk(KERN_WARNING "[reprogram_fixed_counters] data=%llx", data);
+	// dump_stack();
+
 	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
 		u8 new_ctrl = fixed_ctrl_field(data, i);
 		u8 old_ctrl = fixed_ctrl_field(pmu->fixed_ctr_ctrl, i);
@@ -132,6 +135,8 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	struct kvm_pmc *counters;
 	unsigned int num_counters;
 
+	// printk(KERN_WARNING "orig idx=%x\n", idx);
+
 	idx &= ~(3u << 30);
 	if (fixed) {
 		counters = pmu->fixed_counters;
@@ -143,7 +148,12 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	if (idx >= num_counters)
 		return NULL;
 	*mask &= pmu->counter_bitmask[fixed ? KVM_PMC_FIXED : KVM_PMC_GP];
-	return &counters[array_index_nospec(idx, num_counters)];
+
+	int index = array_index_nospec(idx, num_counters);
+	
+	// printk(KERN_WARNING "intel_rdpmc_ecx_to_pmc: fixed=%d counter idx=%d\n", fixed, index);
+
+	return &counters[index];
 }
 
 static inline u64 vcpu_get_perf_capabilities(struct kvm_vcpu *vcpu)
@@ -347,6 +357,8 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	struct kvm_pmc *pmc;
 	u32 msr = msr_info->index;
+
+	// printk("read msr: %x\n", msr);
 
 	switch (msr) {
 	case MSR_CORE_PERF_FIXED_CTR_CTRL:

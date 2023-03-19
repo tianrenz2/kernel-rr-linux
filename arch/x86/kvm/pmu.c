@@ -261,6 +261,8 @@ void reprogram_fixed_counter(struct kvm_pmc *pmc, u8 ctrl, int idx)
 
 	pmc_release_perf_event(pmc);
 
+	printk(KERN_WARNING "[reprogram_fixed_counter]: called\n");
+
 	pmc->current_config = (u64)ctrl;
 	pmc_reprogram_counter(pmc, PERF_TYPE_HARDWARE,
 			      kvm_x86_ops.pmu_ops->pmc_perf_hw_id(pmc),
@@ -359,6 +361,7 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
 	struct kvm_pmc *pmc;
 	u64 mask = fast_mode ? ~0u : ~0ull;
+	u64 cnt;
 
 	if (!pmu->version)
 		return 1;
@@ -375,7 +378,10 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 	    (kvm_read_cr0(vcpu) & X86_CR0_PE))
 		return 1;
 
-	*data = pmc_read_counter(pmc) & mask;
+	cnt = pmc_read_counter(pmc);
+	printk("[kvm_pmu_rdpmc]: counter=%llu\n", cnt);
+
+	*data = cnt & mask;
 	return 0;
 }
 
@@ -544,6 +550,75 @@ void kvm_pmu_trigger_event(struct kvm_vcpu *vcpu, u64 perf_hw_id)
 	}
 }
 EXPORT_SYMBOL_GPL(kvm_pmu_trigger_event);
+
+void kvm_pmu_reprogram_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc;
+	int i;
+	bool event_match, cpl_match;
+
+	for_each_set_bit(i, pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX) {
+		pmc = kvm_x86_ops.pmu_ops->pmc_idx_to_pmc(pmu, i);
+
+		if (!pmc || !pmc_is_enabled(pmc))
+			continue;
+
+		if (eventsel_match_perf_hw_id(pmc, perf_hw_id)) {
+			printk(KERN_WARNING "kvm_pmu_reprogram_counter: Found inst counter\n");
+			reprogram_counter(pmu, i);
+			return;
+		} else {
+			printk(KERN_WARNING "kvm_pmu_reprogram_counter: Not inst counter, event_match=%d, cpl_match=%d\n", event_match, cpl_match);
+		}
+	}
+
+	printk(KERN_WARNING "kvm_pmu_reprogram_counter: Not inst counter all\n");
+}
+EXPORT_SYMBOL_GPL(kvm_pmu_reprogram_counter);
+
+u64 kvm_pmu_read_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc;
+	int i;
+	bool event_match, cpl_match;
+
+	for_each_set_bit(i, pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX) {
+		pmc = kvm_x86_ops.pmu_ops->pmc_idx_to_pmc(pmu, i);
+		// if (!pmc) {
+		// 	printk(KERN_WARNING "No pmc\n");
+		// 	continue;
+		// }
+
+		// if (!pmc_is_enabled(pmc)) {
+		// 	printk(KERN_WARNING "No enabled pmc\n");
+		// 	continue;
+		// }
+
+		// if (!pmc_speculative_in_use(pmc)) {
+		// 	printk(KERN_WARNING "No speculative pmc\n");
+		// 	continue;
+		// }
+
+		if (!pmc || !pmc_is_enabled(pmc) || !pmc_speculative_in_use(pmc))
+			continue;
+
+		event_match = eventsel_match_perf_hw_id(pmc, perf_hw_id);
+		cpl_match = cpl_is_matched(pmc);
+
+		if (event_match && cpl_match) {
+			printk(KERN_WARNING "Found inst counter\n");
+			return pmc_read_counter(pmc);
+		} else {
+			printk(KERN_WARNING "Not inst counter, event_match=%d, cpl_match=%d\n", event_match, cpl_match);
+		}
+	}
+
+	printk(KERN_WARNING "Not found inst counter\n");
+	return 0;
+}
+EXPORT_SYMBOL_GPL(kvm_pmu_read_counter);
 
 int kvm_vm_ioctl_set_pmu_event_filter(struct kvm *kvm, void __user *argp)
 {

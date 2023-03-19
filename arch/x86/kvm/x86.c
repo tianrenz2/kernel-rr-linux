@@ -307,17 +307,45 @@ static struct kmem_cache *x86_emulator_cache;
 
 bool handled_hype = false;
 
+u64 inst_cnt = 0;
+
+static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
+			 bool host_initiated);
+
 void kvm_start_hype(struct kvm_vcpu *vcpu)
 {
+	int r0, r1, r2;
+	bool paused;
+
 	vcpu->in_hype = true;
+
+	// Setting up MSRs for performance counting.
+	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 140737488355329, false);
+	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
+	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 30064771087, false);
+
+	inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+
+	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", inst_cnt, r0, r1, r2);
 }
 
 void kvm_stop_hype(struct kvm_vcpu *vcpu)
 {
-	int i;
+	u64 new_cnt;
+	int r;
+
 	vcpu->in_hype = false;
 
+	// r = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
+
+	new_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+
 	printk(KERN_WARNING "==== Finished Hype ====\n");
+	printk(KERN_WARNING "final cnt=%llu\n", new_cnt);
+
+	inst_cnt = new_cnt - inst_cnt;
+
+	printk(KERN_WARNING "delta inst cnt=%llu\n", inst_cnt);
 }
 
 
@@ -1347,6 +1375,7 @@ int kvm_emulate_rdpmc(struct kvm_vcpu *vcpu)
 {
 	u32 ecx = kvm_rcx_read(vcpu);
 	u64 data;
+	unsigned int low, high;
 
 	if (kvm_pmu_rdpmc(vcpu, ecx, &data)) {
 		kvm_inject_gp(vcpu, 0);
@@ -9110,21 +9139,19 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	}
 
 	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
-		if (!handled_hype) {
-			printk(KERN_WARNING "unknown hypercall %lu\n", nr);
-			vcpu->run->exit_reason = 999;
-			handled_hype = true;
+		printk(KERN_WARNING "unknown hypercall %lu\n", nr);
+		// vcpu->run->exit_reason = 999;
+		// handled_hype = true;
 
-			if (!vcpu->in_hype){
-				kvm_start_hype(vcpu);
-			} else {
-				kvm_stop_hype(vcpu);
-			}
-
-			return 0;
+		if (!vcpu->in_hype){
+			kvm_start_hype(vcpu);
+		} else {
+			kvm_stop_hype(vcpu);
 		}
-		ret = -KVM_EPERM;
-		goto out;
+
+		return kvm_skip_emulated_instruction(vcpu);
+		// ret = -KVM_EPERM;
+		// goto out;
 	}
 
 	ret = -KVM_ENOSYS;
