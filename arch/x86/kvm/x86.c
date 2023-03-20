@@ -30,6 +30,7 @@
 #include "hyperv.h"
 #include "lapic.h"
 #include "xen.h"
+#include "kernel_rr.h"
 
 #include <linux/clocksource.h>
 #include <linux/interrupt.h>
@@ -318,6 +319,7 @@ void kvm_start_hype(struct kvm_vcpu *vcpu)
 	bool paused;
 
 	vcpu->in_hype = true;
+	rr_set_in_record(true);
 
 	// Setting up MSRs for performance counting.
 	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 140737488355329, false);
@@ -346,6 +348,7 @@ void kvm_stop_hype(struct kvm_vcpu *vcpu)
 	inst_cnt = new_cnt - inst_cnt;
 
 	printk(KERN_WARNING "delta inst cnt=%llu\n", inst_cnt);
+	rr_set_in_record(false);
 }
 
 
