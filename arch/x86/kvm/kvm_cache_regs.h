@@ -205,4 +205,14 @@ static inline bool is_smm(struct kvm_vcpu *vcpu)
 	return vcpu->arch.hflags & HF_SMM_MASK;
 }
 
+static inline void rr_fetch_regs(struct kvm_vcpu *vcpu)
+{
+	int i;
+
+	for (i = 0; i < NR_VCPU_REGS; i++) {
+		if (!kvm_register_is_available(vcpu, i))
+			static_call(kvm_x86_cache_reg)(vcpu, i);
+	}
+}
+
 #endif

@@ -350,10 +350,6 @@ void kvm_stop_hype(struct kvm_vcpu *vcpu)
 	printk(KERN_WARNING "delta inst cnt=%llu\n", inst_cnt);
 }
 
-void rr_store_regs(struct kvm_vcpu *vcpu)
-{
-	store_regs(vcpu);
-}
 
 /*
  * When called, it means the previous get/set msr reached an invalid msr.
@@ -12940,6 +12936,12 @@ static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 
 	vcpu->arch.complete_userspace_io = complete_sev_es_emulated_ins;
 	return 0;
+}
+
+void rr_get_regs(struct kvm_vcpu *vcpu, __maybe_unused struct kvm_regs *regs)
+{
+	__get_regs(vcpu, regs);
+	// rr_fetch_regs(vcpu);
 }
 
 int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,

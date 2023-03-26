@@ -14,7 +14,6 @@ typedef struct {
 } lapic_log;
 
 typedef struct {
-    struct kvm_regs *regs;
     lapic_log *lapic;
 } rr_interrupt;
 
@@ -26,8 +25,6 @@ typedef struct {
 typedef struct {
     struct kvm_regs *regs;
 } rr_syscall;
-
- 
 
 typedef struct rr_event_log_t{
     int type;
@@ -43,10 +40,9 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
 int rr_in_record(void);
 void rr_set_in_record(int record);
-void rr_store_regs(struct kvm_vcpu *vcpu);
+void rr_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);
 
 int rr_handle_breakpoint(struct kvm_vcpu *vcpu);
-int rr_handle_debug(struct kvm_vcpu *vcpu);
 
 int rr_do_singlestep(struct kvm_vcpu *vcpu);
 void rr_update_apicv_inhibit(struct kvm *kvm);

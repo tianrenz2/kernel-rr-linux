@@ -5,6 +5,71 @@ int in_record = 0;
 rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
 
+const unsigned long syscall_addr = 0xffffffff8111d0ef;
+
+__maybe_unused static void rr_print_regs(struct kvm_regs *regs)
+{
+    printk(KERN_INFO "[RR Print Regs]\n"
+           "rax=%llu, rbx=%llu, rcx=%llu, rdx=%llu,"
+           "rsi=%llu, rdi=%llu, rsp=%llu, rbp=%llu"
+           "rip=%llu",
+           regs->rax, regs->rbx, regs->rcx, regs->rdx,
+           regs->rsi, regs->rdi, regs->rsp, regs->rbp,
+           regs->rip);
+}
+
+__maybe_unused static void rr_record_regs(struct kvm_regs *dest_regs, struct kvm_regs *src_regs)
+{
+    dest_regs->rax = src_regs->rax;
+    dest_regs->rbx = src_regs->rbx;
+    dest_regs->rcx = src_regs->rcx;
+    dest_regs->rdx = src_regs->rdx;
+    
+    dest_regs->rsi = src_regs->rsi;
+    dest_regs->rdi = src_regs->rdi;
+    dest_regs->rsp = src_regs->rsp;
+    dest_regs->rbp = src_regs->rbp;
+
+    dest_regs->r8 = src_regs->r8;
+    dest_regs->r9 = src_regs->r9;
+    dest_regs->r10 = src_regs->r10;
+    dest_regs->r11 = src_regs->r11;
+
+    dest_regs->r12 = src_regs->r12;
+    dest_regs->r13 = src_regs->r13;
+    dest_regs->r14 = src_regs->r14;
+    dest_regs->r15 = src_regs->r15;
+
+    dest_regs->rip = src_regs->rip;
+    dest_regs->rflags = src_regs->rflags;
+}
+
+__maybe_unused static void rr_cp_regs(struct kvm_vcpu *vcpu, struct kvm_regs *dest_regs)
+{
+    dest_regs->rax = vcpu->arch.regs[VCPU_REGS_RAX];
+    dest_regs->rbx = vcpu->arch.regs[VCPU_REGS_RBX];
+    dest_regs->rcx = vcpu->arch.regs[VCPU_REGS_RCX];
+    dest_regs->rdx = vcpu->arch.regs[VCPU_REGS_RDX];
+
+    // dest_regs->rsi = src_regs->rsi;
+    // dest_regs->rdi = src_regs->rdi;
+    // dest_regs->rsp = src_regs->rsp;
+    // dest_regs->rbp = src_regs->rbp;
+
+    // dest_regs->r8 = src_regs->r8;
+    // dest_regs->r9 = src_regs->r9;
+    // dest_regs->r10 = src_regs->r10;
+    // dest_regs->r11 = src_regs->r11;
+
+    // dest_regs->r12 = src_regs->r12;
+    // dest_regs->r13 = src_regs->r13;
+    // dest_regs->r14 = src_regs->r14;
+    // dest_regs->r15 = src_regs->r15;
+
+    // dest_regs->rip = src_regs->rip;
+    // dest_regs->rflags = src_regs->rflags;
+}
+
 
 static void rr_insert_event_log(rr_event_log *event)
 {
@@ -22,12 +87,18 @@ static void rr_insert_event_log(rr_event_log *event)
 
 static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 {
-    struct kvm_regs *regs = kmalloc(sizeof(struct kvm_regs), GFP_KERNEL);
-    rr_event_log *event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    rr_syscall *syscall_log = kmalloc(sizeof(rr_syscall), GFP_KERNEL);
+    struct kvm_regs *regs;
+    rr_event_log *event_log;
+    rr_syscall *syscall_log;
 
-    kvm_arch_vcpu_ioctl_get_regs(vcpu, regs);
+    regs = kmalloc(sizeof(struct kvm_regs), GFP_KERNEL);
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    syscall_log = kmalloc(sizeof(rr_syscall), GFP_KERNEL);
+
+    rr_get_regs(vcpu, regs);
     syscall_log->regs = regs;
+
+    printk(KERN_INFO "dump rax=%llu, rbx=%llu\n", regs->rax, regs->rbx);
 
     event_log->event.syscall = syscall_log;
     event_log->type = EVENT_TYPE_SYSCALL;
@@ -39,23 +110,23 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 {
 
-    struct kvm_regs *kvm_regs;
-    rr_event_log *event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    rr_interrupt *int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
+    struct kvm_regs *regs;
+    rr_event_log *event_log;
+    rr_interrupt *int_log;
     lapic_log *lapic = (lapic_log *)opaque;
-    // int r;
 
-	kvm_regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
 
-	rr_store_regs(vcpu);
-    
-    memcpy(kvm_regs, &vcpu->run->s.regs.regs, sizeof(struct kvm_regs));
+	// rr_get_regs(vcpu, NULL);
+    // rr_cp_regs(vcpu, regs);
 
-    int_log->regs = kvm_regs;
     int_log->lapic = lapic;
 
     event_log->event.interrupt = int_log;
     event_log->type = EVENT_TYPE_INTERRUPT;
+    event_log->next = NULL;
 
     rr_insert_event_log(event_log);
 }
@@ -66,16 +137,23 @@ void rr_set_in_record(int record)
 
     if (!in_record) {
         rr_event_log *event = rr_event_log_head;
-        int event_num = 0;
+        int event_int_num = 0;
+        int event_syscall_num = 0;
+        // int show = 20;
+
         printk(KERN_WARNING "=== Report recorded events ===\n");
         while (event != NULL) {
-            if (event->event.interrupt) {
-                event_num++;
-                // printk(KERN_WARNING "Recorded event: vector=%d, ip=%x\n", event->event.interrupt->vector, event->event.interrupt->regs->rax);
+            if (event->type == EVENT_TYPE_INTERRUPT) {
+                event_int_num++;
             }
+
+            if (event->type == EVENT_TYPE_SYSCALL) {
+                event_syscall_num++;
+            }
+
             event = event->next;
         }
-        printk(KERN_WARNING "Total Event Number: %d\n", event_num);
+        printk(KERN_WARNING "Total Event Number: int=%d, syscall=%d\n", event_int_num, event_syscall_num);
     }
 }
 
@@ -112,50 +190,24 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     }
 }
 
-unsigned long cached_bp[KVM_NR_DB_REGS] = {0, 0, 0, 0};
-
 int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
 {
-    // int i, r;
-    // struct kvm_guest_debug dbg;
+    unsigned long addr;
 
-    // for (i = 0; i < KVM_NR_DB_REGS; ++i) {
-    //     cached_bp[i] = vcpu->arch.eff_db[i];
-    //     vcpu->arch.eff_db[i] = 0;
-    // }
+    if (!rr_in_record()) {
+        return 0;
+    }
 
-    // dbg.control = 0; 
-    // dbg.control |= KVM_GUESTDBG_ENABLE | KVM_GUESTDBG_SINGLESTEP | KVM_GUESTDBG_BLOCKIRQ;
+    addr = kvm_get_linear_rip(vcpu);
 
-    // rr_do_singlestep(vcpu);
-	// printk(KERN_INFO "[rr]Handled breakpoint\n");
-
-    // vcpu->arch.singlestep_rip = kvm_get_linear_rip(vcpu);
-
-	// static_call(kvm_x86_update_exception_bitmap)(vcpu);
-    // rr_update_apicv_inhibit(vcpu->kvm);
-
-	// kvm_arch_vcpu_guestdbg_update_apicv_inhibit(vcpu->kvm);
-    // kvm_arch_vcpu_ioctl_set_guest_debug(vcpu, &dbg);
+    switch(addr) {
+        case syscall_addr:
+            rr_record_event(vcpu, EVENT_TYPE_SYSCALL, NULL);
+            break;
+        default:
+            break;
+    }
 
     return 0;
 }
 EXPORT_SYMBOL_GPL(rr_handle_breakpoint);
-
-int rr_handle_debug(struct kvm_vcpu *vcpu)
-{
-    int i;
-
-    for (i = 0; i < KVM_NR_DB_REGS; ++i) {
-        vcpu->arch.eff_db[i] = cached_bp[i];
-    }
-
-    vcpu->guest_debug &= ~ KVM_GUESTDBG_SINGLESTEP;
-    vcpu->guest_debug &= ~ KVM_GUESTDBG_ENABLE;
-    vcpu->guest_debug &= ~ KVM_GUESTDBG_BLOCKIRQ;
-
-    printk(KERN_INFO "[rr]Handled debug\n");
-   
-    return 0;
-}
-EXPORT_SYMBOL_GPL(rr_handle_debug);
