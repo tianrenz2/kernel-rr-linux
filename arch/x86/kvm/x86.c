@@ -319,7 +319,7 @@ void kvm_start_hype(struct kvm_vcpu *vcpu)
 	bool paused;
 
 	vcpu->in_hype = true;
-	rr_set_in_record(true);
+	rr_set_in_record(1);
 
 	// Setting up MSRs for performance counting.
 	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 140737488355329, false);
@@ -337,7 +337,7 @@ void kvm_stop_hype(struct kvm_vcpu *vcpu)
 	int r;
 
 	vcpu->in_hype = false;
-
+	rr_set_in_record(0);
 	// r = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
 
 	new_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
@@ -348,9 +348,12 @@ void kvm_stop_hype(struct kvm_vcpu *vcpu)
 	inst_cnt = new_cnt - inst_cnt;
 
 	printk(KERN_WARNING "delta inst cnt=%llu\n", inst_cnt);
-	rr_set_in_record(false);
 }
 
+void rr_store_regs(struct kvm_vcpu *vcpu)
+{
+	store_regs(vcpu);
+}
 
 /*
  * When called, it means the previous get/set msr reached an invalid msr.
@@ -730,6 +733,9 @@ static void kvm_multiple_exception(struct kvm_vcpu *vcpu,
 
 void kvm_queue_exception(struct kvm_vcpu *vcpu, unsigned nr)
 {
+	if (nr == DB_VECTOR) {
+		printk(KERN_INFO "rr kvm_queue_exception\n");
+	}
 	kvm_multiple_exception(vcpu, nr, false, 0, false, 0, false);
 }
 EXPORT_SYMBOL_GPL(kvm_queue_exception);
@@ -743,6 +749,10 @@ EXPORT_SYMBOL_GPL(kvm_requeue_exception);
 void kvm_queue_exception_p(struct kvm_vcpu *vcpu, unsigned nr,
 			   unsigned long payload)
 {
+	if (nr == DB_VECTOR) {
+		printk(KERN_INFO "rr kvm_queue_exception_p\n");
+	}
+
 	kvm_multiple_exception(vcpu, nr, false, 0, true, payload, false);
 }
 EXPORT_SYMBOL_GPL(kvm_queue_exception_p);
@@ -8188,6 +8198,8 @@ static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *kvm_run = vcpu->run;
 
+	printk(KERN_INFO "[kvm_vcpu_do_singlestep]\n");
+
 	if (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP) {
 		kvm_run->debug.arch.dr6 = DR6_BS | DR6_ACTIVE_LOW;
 		kvm_run->debug.arch.pc = kvm_get_linear_rip(vcpu);
@@ -8197,6 +8209,11 @@ static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu)
 	}
 	kvm_queue_exception_p(vcpu, DB_VECTOR, DR6_BS);
 	return 1;
+}
+
+int rr_do_singlestep(struct kvm_vcpu *vcpu)
+{
+	return kvm_vcpu_do_singlestep(vcpu);
 }
 
 int kvm_skip_emulated_instruction(struct kvm_vcpu *vcpu)
@@ -10239,6 +10256,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		kvm_lapic_sync_from_vapic(vcpu);
 
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
+
+	if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
+		rr_handle_breakpoint(vcpu);
+	}
+
 	return r;
 
 cancel_injection:
@@ -10973,6 +10995,11 @@ static void kvm_arch_vcpu_guestdbg_update_apicv_inhibit(struct kvm *kvm)
 	up_write(&kvm->arch.apicv_update_lock);
 }
 
+void rr_update_apicv_inhibit(struct kvm *kvm)
+{
+	kvm_arch_vcpu_guestdbg_update_apicv_inhibit(kvm);
+}
+
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 					struct kvm_guest_debug *dbg)
 {
@@ -10988,8 +11015,9 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 		r = -EBUSY;
 		if (vcpu->arch.exception.pending)
 			goto out;
-		if (dbg->control & KVM_GUESTDBG_INJECT_DB)
+		if (dbg->control & KVM_GUESTDBG_INJECT_DB){
 			kvm_queue_exception(vcpu, DB_VECTOR);
+		}
 		else
 			kvm_queue_exception(vcpu, BP_VECTOR);
 	}

@@ -8,8 +8,14 @@
 #define EVENT_TYPE_SYSCALL   2
 
 typedef struct {
-    __u32 vector;
+    int delivery_mode;
+	int vector;
+    int trig_mode;
+} lapic_log;
+
+typedef struct {
     struct kvm_regs *regs;
+    lapic_log *lapic;
 } rr_interrupt;
 
 typedef struct {
@@ -33,15 +39,16 @@ typedef struct rr_event_log_t{
     struct rr_event_log_t *next;
 } rr_event_log;
 
-typedef struct {
-    int delivery_mode;
-	int vector;
-    int trig_mode;
-} lapic_log;
-
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
-bool rr_in_record(void);
-void rr_set_in_record(bool in_record);
+int rr_in_record(void);
+void rr_set_in_record(int record);
+void rr_store_regs(struct kvm_vcpu *vcpu);
+
+int rr_handle_breakpoint(struct kvm_vcpu *vcpu);
+int rr_handle_debug(struct kvm_vcpu *vcpu);
+
+int rr_do_singlestep(struct kvm_vcpu *vcpu);
+void rr_update_apicv_inhibit(struct kvm *kvm);
 
 #endif

@@ -66,6 +66,7 @@
 #include "vmcs12.h"
 #include "vmx.h"
 #include "x86.h"
+#include "kernel_rr.h"
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
@@ -4918,6 +4919,9 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 		dr6 = vmx_get_exit_qual(vcpu);
 		if (!(vcpu->guest_debug &
 		      (KVM_GUESTDBG_SINGLESTEP | KVM_GUESTDBG_USE_HW_BP))) {
+		
+			printk(KERN_INFO "Handled singlestep 1\n");
+			// rr_handle_debug(vcpu);
 			/*
 			 * If the #DB was due to ICEBP, a.k.a. INT1, skip the
 			 * instruction.  ICEBP generates a trap-like #DB, but
@@ -7851,6 +7855,8 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.complete_emulated_msr = kvm_complete_insn_gp,
 
 	.vcpu_deliver_sipi_vector = kvm_vcpu_deliver_sipi_vector,
+
+	.dump_regs = dump_vmcs
 };
 
 static unsigned int vmx_handle_intel_pt_intr(void)
