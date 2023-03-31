@@ -6,6 +6,7 @@ rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
 
 const unsigned long syscall_addr = 0xffffffff8111d0ef;
+const unsigned long pf_excep_addr = 0xffffffff81200aa0;
 
 __maybe_unused static void rr_print_regs(struct kvm_regs *regs)
 {
@@ -84,6 +85,24 @@ static void rr_insert_event_log(rr_event_log *event)
     rr_event_log_tail->next = NULL;
 }
 
+static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
+{
+    struct kvm_regs *regs;
+    rr_event_log *event_log;
+    rr_exception *excp_log;
+
+	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    excp_log = kmalloc(sizeof(rr_exception), GFP_KERNEL);
+
+    excp_log->error_code = vcpu->arch.exception.error_code;
+    excp_log->exception_index = vcpu->arch.exception.nr;
+    event_log->type = EVENT_TYPE_EXCEPTION;
+    event_log->next = NULL;
+
+    rr_insert_event_log(event_log);
+}
+
 
 static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 {
@@ -97,8 +116,6 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 
     rr_get_regs(vcpu, regs);
     syscall_log->regs = regs;
-
-    printk(KERN_INFO "dump rax=%llu, rbx=%llu\n", regs->rax, regs->rbx);
 
     event_log->event.syscall = syscall_log;
     event_log->type = EVENT_TYPE_SYSCALL;
@@ -119,9 +136,6 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
     int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
 
-	// rr_get_regs(vcpu, NULL);
-    // rr_cp_regs(vcpu, regs);
-
     int_log->lapic = lapic;
 
     event_log->event.interrupt = int_log;
@@ -139,6 +153,7 @@ void rr_set_in_record(int record)
         rr_event_log *event = rr_event_log_head;
         int event_int_num = 0;
         int event_syscall_num = 0;
+        int event_pf_excep = 0;
         // int show = 20;
 
         printk(KERN_WARNING "=== Report recorded events ===\n");
@@ -151,9 +166,14 @@ void rr_set_in_record(int record)
                 event_syscall_num++;
             }
 
+            if (event->type == EVENT_TYPE_EXCEPTION) {
+                event_pf_excep++;
+            }
+
             event = event->next;
         }
-        printk(KERN_WARNING "Total Event Number: int=%d, syscall=%d\n", event_int_num, event_syscall_num);
+        printk(KERN_WARNING "Total Event Number: int=%d, syscall=%d, pf=%d\n",
+               event_int_num, event_syscall_num, event_pf_excep);
     }
 }
 
@@ -181,6 +201,7 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         handle_event_interrupt(vcpu, opaque);
         break;
     case EVENT_TYPE_EXCEPTION:
+        handle_event_exception(vcpu, opaque);
         break;
     case EVENT_TYPE_SYSCALL:
         handle_event_syscall(vcpu, opaque);
@@ -203,6 +224,9 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
     switch(addr) {
         case syscall_addr:
             rr_record_event(vcpu, EVENT_TYPE_SYSCALL, NULL);
+            break;
+        case pf_excep_addr:
+            rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, NULL);
             break;
         default:
             break;

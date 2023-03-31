@@ -1625,6 +1625,9 @@ struct kvm_enc_region {
 #define KVM_S390_NORMAL_RESET	_IO(KVMIO,   0xc3)
 #define KVM_S390_CLEAR_RESET	_IO(KVMIO,   0xc4)
 
+#define KVM_START_RECORD	1001
+#define KVM_END_RECORD		1002
+
 struct kvm_s390_pv_sec_parm {
 	__u64 origin;
 	__u64 length;

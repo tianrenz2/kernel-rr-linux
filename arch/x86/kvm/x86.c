@@ -729,9 +729,6 @@ static void kvm_multiple_exception(struct kvm_vcpu *vcpu,
 
 void kvm_queue_exception(struct kvm_vcpu *vcpu, unsigned nr)
 {
-	if (nr == DB_VECTOR) {
-		printk(KERN_INFO "rr kvm_queue_exception\n");
-	}
 	kvm_multiple_exception(vcpu, nr, false, 0, false, 0, false);
 }
 EXPORT_SYMBOL_GPL(kvm_queue_exception);
