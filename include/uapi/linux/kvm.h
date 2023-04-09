@@ -2052,5 +2052,6 @@ struct kvm_stats_desc {
 #define KVM_START_RECORD	_IO(KVMIO, 0xd0)
 #define KVM_END_RECORD		_IO(KVMIO, 0xd1)
 #define KVM_START_REPLAY    _IO(KVMIO, 0xd2)
+#define KVM_END_REPLAY    	_IO(KVMIO, 0xd3)
 
 #endif /* __LINUX_KVM_H */

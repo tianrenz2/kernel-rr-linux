@@ -5735,6 +5735,11 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		rr_set_in_replay(vcpu, 1);
 		break;
 	}
+	case KVM_END_REPLAY: {
+		printk(KERN_INFO "End replaying guest\n");
+		rr_set_in_replay(vcpu, 0);
+		break;
+	}
 	default:
 		printk(KERN_WARNING "Invalid type %lu\n", ioctl);
 		r = -EINVAL;

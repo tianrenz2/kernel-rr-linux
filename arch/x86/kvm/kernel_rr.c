@@ -231,7 +231,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
 void rr_set_in_replay(struct kvm_vcpu *vcpu, int replay)
 {
-    in_replay = 1;
+    in_replay = replay;
 }
 
 int rr_in_replay(void)
