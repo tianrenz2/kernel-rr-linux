@@ -313,13 +313,12 @@ u64 inst_cnt = 0;
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated);
 
-void kvm_start_hype(struct kvm_vcpu *vcpu)
+void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 {
 	int r0, r1, r2;
 	bool paused;
 
 	vcpu->in_hype = true;
-	rr_set_in_record(1);
 
 	// Setting up MSRs for performance counting.
 	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 140737488355329, false);
@@ -331,13 +330,12 @@ void kvm_start_hype(struct kvm_vcpu *vcpu)
 	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", inst_cnt, r0, r1, r2);
 }
 
-void kvm_stop_hype(struct kvm_vcpu *vcpu)
+void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
 {
 	u64 new_cnt;
 	int r;
 
 	vcpu->in_hype = false;
-	rr_set_in_record(0);
 	// r = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
 
 	new_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
@@ -5722,9 +5720,26 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	case KVM_SET_DEVICE_ATTR:
 		r = kvm_vcpu_ioctl_device_attr(vcpu, ioctl, argp);
 		break;
+	case KVM_START_RECORD: {
+		printk(KERN_INFO "Start recording guest\n");
+		rr_set_in_record(vcpu, 1);
+		break;
+	}
+	case KVM_END_RECORD: {
+		printk(KERN_INFO "End recording guest\n");
+		rr_set_in_record(vcpu, 0);
+		break;
+	}
+	case KVM_START_REPLAY: {
+		printk(KERN_INFO "Start replaying guest\n");
+		rr_set_in_replay(vcpu, 1);
+		break;
+	}
 	default:
+		printk(KERN_WARNING "Invalid type %lu\n", ioctl);
 		r = -EINVAL;
 	}
+
 out:
 	kfree(u.buffer);
 out_nofree:
@@ -9123,6 +9138,11 @@ static int complete_hypercall_exit(struct kvm_vcpu *vcpu)
 	return kvm_skip_emulated_instruction(vcpu);
 }
 
+unsigned long get_rsi(struct kvm_vcpu *vcpu)
+{
+	return kvm_rsi_read(vcpu);
+}
+
 int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 {
 	unsigned long nr, a0, a1, a2, a3, ret;
@@ -9157,9 +9177,9 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		// handled_hype = true;
 
 		if (!vcpu->in_hype){
-			kvm_start_hype(vcpu);
+			kvm_start_inst_cnt(vcpu);
 		} else {
-			kvm_stop_hype(vcpu);
+			kvm_stop_inst_cnt(vcpu);
 		}
 
 		return kvm_skip_emulated_instruction(vcpu);
@@ -10027,6 +10047,12 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		if (kvm_check_request(KVM_REQ_UPDATE_CPU_DIRTY_LOGGING, vcpu))
 			static_call(kvm_x86_update_cpu_dirty_logging)(vcpu);
+
+		if (kvm_check_request(KVM_REQ_START_RECORD, vcpu))
+			kvm_start_inst_cnt(vcpu);
+		
+		if (kvm_check_request(KVM_REQ_END_RECORD, vcpu))
+			kvm_stop_inst_cnt(vcpu);
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
@@ -10597,6 +10623,33 @@ int kvm_arch_vcpu_ioctl_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
 	__get_regs(vcpu, regs);
 	vcpu_put(vcpu);
 	return 0;
+}
+
+void rr_set_reg(struct kvm_vcpu *vcpu, int index, unsigned long val)
+{
+	switch (index) {
+		case 1:
+			kvm_rax_write(vcpu, val);
+			break;
+		case 2:
+			kvm_rbx_write(vcpu, val);
+			break;
+		case 3:
+			kvm_rbx_write(vcpu, val);
+			break;
+		case 4:
+			kvm_rdx_write(vcpu, val);
+			break;
+		case 11:
+			kvm_r11_write(vcpu, val);
+			break;
+		case 16:
+			kvm_rip_write(vcpu, val);
+		default:
+			break;
+	}
+
+	return;
 }
 
 static void __set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs)
@@ -12938,7 +12991,11 @@ static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 void rr_get_regs(struct kvm_vcpu *vcpu, __maybe_unused struct kvm_regs *regs)
 {
 	__get_regs(vcpu, regs);
-	// rr_fetch_regs(vcpu);
+}
+
+void rr_set_regs(struct kvm_vcpu *vcpu, __maybe_unused struct kvm_regs *regs)
+{
+	__set_regs(vcpu, regs);
 }
 
 int kvm_sev_es_string_io(struct kvm_vcpu *vcpu, unsigned int size,

@@ -103,6 +103,9 @@
 #define KVM_REQ_UPDATE_CPU_DIRTY_LOGGING \
 	KVM_ARCH_REQ_FLAGS(30, KVM_REQUEST_WAIT | KVM_REQUEST_NO_WAKEUP)
 
+#define KVM_REQ_START_RECORD	KVM_ARCH_REQ(31)
+#define KVM_REQ_END_RECORD	KVM_ARCH_REQ(32)
+
 #define CR0_RESERVED_BITS                                               \
 	(~(unsigned long)(X86_CR0_PE | X86_CR0_MP | X86_CR0_EM | X86_CR0_TS \
 			  | X86_CR0_ET | X86_CR0_NE | X86_CR0_WP | X86_CR0_AM \
@@ -1494,6 +1497,8 @@ struct kvm_x86_ops {
 
 	void (*vcpu_deliver_sipi_vector)(struct kvm_vcpu *vcpu, u8 vector);
 	void (*dump_regs)(struct kvm_vcpu *vcpu);
+
+	void (*rr_handle)(struct kvm_vcpu *vcpu);
 };
 
 struct kvm_x86_nested_ops {

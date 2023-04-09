@@ -7718,6 +7718,19 @@ static bool vmx_check_apicv_inhibit_reasons(ulong bit)
 	return supported & BIT(bit);
 }
 
+static void vmx_rr_handle(struct kvm_vcpu *vcpu)
+{
+	printk(KERN_INFO "rr_handle: intr_info=%08x errcode=%08x ilen=%08x\n",
+	       vmcs_read32(VM_ENTRY_INTR_INFO_FIELD),
+	       vmcs_read32(VM_ENTRY_EXCEPTION_ERROR_CODE),
+	       vmcs_read32(VM_ENTRY_INSTRUCTION_LEN));
+
+	printk(KERN_INFO "rr_handle: IDTVectoring: info=%08x errcode=%08x\n",
+	       vmcs_read32(IDT_VECTORING_INFO_FIELD),
+	       vmcs_read32(IDT_VECTORING_ERROR_CODE));
+}
+
+
 static struct kvm_x86_ops vmx_x86_ops __initdata = {
 	.name = "kvm_intel",
 
@@ -7854,7 +7867,9 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
 
 	.vcpu_deliver_sipi_vector = kvm_vcpu_deliver_sipi_vector,
 
-	.dump_regs = dump_vmcs
+	.dump_regs = dump_vmcs,
+
+	.rr_handle = vmx_rr_handle
 };
 
 static unsigned int vmx_handle_intel_pt_intr(void)

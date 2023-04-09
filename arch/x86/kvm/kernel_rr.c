@@ -1,12 +1,30 @@
+#include <linux/fs.h>
+#include <asm/segment.h>
+#include <asm/uaccess.h>
+#include <linux/buffer_head.h>
+
 #include "kernel_rr.h"
 
 int in_record = 0;
+int in_replay = 0;
 
 rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
 
 const unsigned long syscall_addr = 0xffffffff8111d0ef;
-const unsigned long pf_excep_addr = 0xffffffff81200aa0;
+const unsigned long pf_excep_addr = 0xffffffff8111e449;
+
+static rr_exception* new_rr_exception(int vector, int error_code, unsigned long cr2)
+{
+    rr_exception *excp_log;
+
+    excp_log = kmalloc(sizeof(rr_exception), GFP_KERNEL);
+
+    excp_log->exception_index = vector;
+    excp_log->error_code = error_code;
+
+    return excp_log;
+}
 
 __maybe_unused static void rr_print_regs(struct kvm_regs *regs)
 {
@@ -89,15 +107,24 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
 {
     struct kvm_regs *regs;
     rr_event_log *event_log;
-    rr_exception *excp_log;
+    rr_exception *except;
 
 	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    excp_log = kmalloc(sizeof(rr_exception), GFP_KERNEL);
 
-    excp_log->error_code = vcpu->arch.exception.error_code;
-    excp_log->exception_index = vcpu->arch.exception.nr;
+    except = (rr_exception *)opaque;
+
+    switch (except->exception_index) {
+        case PF_VECTOR:
+            except->error_code = get_rsi(vcpu);
+            except->cr2 = vcpu->arch.cr2;
+            break;
+        default:
+            return;
+    }
+
     event_log->type = EVENT_TYPE_EXCEPTION;
+    event_log->event.exception = except;
     event_log->next = NULL;
 
     rr_insert_event_log(event_log);
@@ -145,8 +172,13 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     rr_insert_event_log(event_log);
 }
 
-void rr_set_in_record(int record)
+void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 {
+    if (record == in_record) {
+        printk(KERN_WARNING "Skip because it's record status is already %d\n", record);
+        return;
+    }
+
     in_record = record;
 
     if (!in_record) {
@@ -154,7 +186,6 @@ void rr_set_in_record(int record)
         int event_int_num = 0;
         int event_syscall_num = 0;
         int event_pf_excep = 0;
-        // int show = 20;
 
         printk(KERN_WARNING "=== Report recorded events ===\n");
         while (event != NULL) {
@@ -167,14 +198,45 @@ void rr_set_in_record(int record)
             }
 
             if (event->type == EVENT_TYPE_EXCEPTION) {
+                printk(KERN_WARNING "except vector=%d error code=%d, addr=%x",
+                       event->event.exception->exception_index,
+                       event->event.exception->error_code,
+                       event->event.exception->cr2);
                 event_pf_excep++;
             }
 
             event = event->next;
+
         }
-        printk(KERN_WARNING "Total Event Number: int=%d, syscall=%d, pf=%d\n",
-               event_int_num, event_syscall_num, event_pf_excep);
+
+        kvm_make_request(KVM_REQ_END_RECORD, vcpu);
+    } else {
+        if (rr_event_log_head != NULL) {
+            rr_event_log *pre_event = rr_event_log_head;
+            rr_event_log *event = pre_event->next;
+
+            while (pre_event != NULL) {
+                kfree(pre_event);
+                pre_event = event;
+                event = pre_event->next;
+            }
+
+            rr_event_log_head = NULL;
+            rr_event_log_tail = NULL;
+        }
+
+        kvm_make_request(KVM_REQ_START_RECORD, vcpu);
     }
+}
+
+void rr_set_in_replay(struct kvm_vcpu *vcpu, int replay)
+{
+    in_replay = 1;
+}
+
+int rr_in_replay(void)
+{
+    return in_replay;
 }
 
 int rr_in_record(void)
@@ -226,7 +288,7 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
             rr_record_event(vcpu, EVENT_TYPE_SYSCALL, NULL);
             break;
         case pf_excep_addr:
-            rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, NULL);
+            rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
             break;
         default:
             break;
@@ -235,3 +297,8 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
     return 0;
 }
 EXPORT_SYMBOL_GPL(rr_handle_breakpoint);
+
+void inject_syscall_event(struct kvm_vcpu *vcpu, rr_syscall *syscall_log)
+{
+    rr_set_regs(vcpu, syscall_log->regs);
+}

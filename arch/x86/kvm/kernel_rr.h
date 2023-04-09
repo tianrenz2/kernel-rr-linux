@@ -7,6 +7,28 @@
 #define EVENT_TYPE_EXCEPTION 1
 #define EVENT_TYPE_SYSCALL   2
 
+enum REGS {
+    ZERO,
+    RR_RAX,
+    RR_RCX,
+	RR_RDX,
+	RR_RBX,
+	RR_RSP,
+	RR_RBP,
+	RR_RSI,
+	RR_RDI,
+	RR_R8,
+	RR_R9,
+	RR_R10,
+	RR_R11,
+	RR_R12,
+	RR_R13,
+	RR_R14,
+	RR_R15,
+	RR_RIP,
+	RR_NR_VCPU_REGS,
+};
+
 typedef struct {
     int delivery_mode;
 	int vector;
@@ -20,6 +42,7 @@ typedef struct {
 typedef struct {
     int exception_index;
     int error_code;
+    unsigned long cr2;
 } rr_exception;
 
 typedef struct {
@@ -34,17 +57,28 @@ typedef struct rr_event_log_t{
         rr_syscall  *syscall;
     } event;
     struct rr_event_log_t *next;
+    int inst_from_last;
 } rr_event_log;
 
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
 int rr_in_record(void);
-void rr_set_in_record(int record);
+int rr_in_replay(void);
+void rr_set_in_record(struct kvm_vcpu *vcpu, int record);
+void rr_set_in_replay(struct kvm_vcpu *vcpu, int replay);
 void rr_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);
+void rr_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);
+
+unsigned long get_rsi(struct kvm_vcpu *vcpu);
 
 int rr_handle_breakpoint(struct kvm_vcpu *vcpu);
 
 int rr_do_singlestep(struct kvm_vcpu *vcpu);
 void rr_update_apicv_inhibit(struct kvm *kvm);
+
+void rr_set_reg(struct kvm_vcpu *vcpu, int index, unsigned long val);
+
+void kvm_start_inst_cnt(struct kvm_vcpu *vcpu);
+void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu);
 
 #endif
