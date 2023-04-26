@@ -370,6 +370,7 @@ struct kvm_vcpu {
 	u64 last_used_slot_gen;
 
 	bool in_hype;
+	u64  rr_start_point;
 };
 
 /*

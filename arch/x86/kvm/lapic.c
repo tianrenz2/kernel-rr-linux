@@ -1071,12 +1071,6 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 	int result = 0;
 	struct kvm_vcpu *vcpu = apic->vcpu;
 
-	if (rr_in_record() > 0) {
-		if (level > 0) {
-			rr_record_event(apic->vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(delivery_mode, vector, trig_mode));
-		}
-	}
-
 	trace_kvm_apic_accept_irq(vcpu->vcpu_id, delivery_mode,
 				  trig_mode, vector);
 	switch (delivery_mode) {
@@ -1163,6 +1157,13 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 		       delivery_mode);
 		break;
 	}
+
+	if (rr_in_record()) {
+		if (level > 0 && result > 0) {
+			rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(delivery_mode, vector, trig_mode));
+		}
+	}
+
 	return result;
 }
 

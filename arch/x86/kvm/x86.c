@@ -30,7 +30,6 @@
 #include "hyperv.h"
 #include "lapic.h"
 #include "xen.h"
-#include "kernel_rr.h"
 
 #include <linux/clocksource.h>
 #include <linux/interrupt.h>
@@ -82,6 +81,8 @@
 #include <asm/emulate_prefix.h>
 #include <asm/sgx.h>
 #include <clocksource/hyperv_timer.h>
+
+#include "kernel_rr.h"
 
 #define CREATE_TRACE_POINTS
 #include "trace.h"
@@ -325,10 +326,16 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 30064771087, false);
 
-	inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
-
-	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", inst_cnt, r0, r1, r2);
+	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	
+	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", vcpu->rr_start_point, r0, r1, r2);
 }
+
+u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
+{
+	return kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+}
+
 
 void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
 {
@@ -5299,6 +5306,8 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		struct kvm_lapic_state *lapic;
 		struct kvm_xsave *xsave;
 		struct kvm_xcrs *xcrs;
+		struct rr_event_log_t *event;
+		struct rr_event_info *event_info;
 		void *buffer;
 	} u;
 
@@ -5740,6 +5749,58 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		rr_set_in_replay(vcpu, 0);
 		break;
 	}
+	case KVM_GET_RR_NEXT_EVENT: {
+		int r;
+		struct rr_event_log_t event_log = rr_get_next_event();
+		struct rr_event_log_t __user *user_event_log = argp;		
+
+		r = -EFAULT;
+
+		if (copy_to_user(user_event_log, &event_log, sizeof(rr_event_log)))
+			goto out;
+
+		// if (copy_to_user(user_event_log->event, &event_log->event, sizeof(rr_interrupt)))
+		// 	goto out;
+
+		// switch (event_log->type)
+		// {
+		// case EVENT_TYPE_INTERRUPT:
+		// 	if (copy_to_user(user_event_log->event.interrupt, event_log->event, sizeof(rr_interrupt)))
+		// 		goto out;
+		// 	break;
+
+		// case EVENT_TYPE_EXCEPTION:
+		// 	if (copy_to_user(user_event_log->event.exception, event_log->event.exception, sizeof(rr_exception)))
+		// 		goto out;
+		// 	break;
+
+		// case EVENT_TYPE_SYSCALL:
+		// 	if (copy_to_user(user_event_log->event.syscall, event_log->event.syscall, sizeof(rr_syscall)))
+		// 		goto out;
+		// 	break;
+
+		// default:
+		// 	break;
+		// }
+
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_EVENT_NUMBER: {
+		int r;
+
+		r = -EFAULT;
+		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
+		event_info->event_number = rr_get_event_list_length();
+		printk(KERN_INFO "event number = %d\n", event_info->event_number);
+
+		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
+			goto out;
+
+		r = 0;
+		break;
+	}
+
 	default:
 		printk(KERN_WARNING "Invalid type %lu\n", ioctl);
 		r = -EINVAL;

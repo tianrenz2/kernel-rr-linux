@@ -13,6 +13,7 @@
 #include <linux/compiler.h>
 #include <linux/ioctl.h>
 #include <asm/kvm.h>
+#include <asm/kernel_rr.h>
 
 #define KVM_API_VERSION 12
 
@@ -2053,5 +2054,8 @@ struct kvm_stats_desc {
 #define KVM_END_RECORD		_IO(KVMIO, 0xd1)
 #define KVM_START_REPLAY    _IO(KVMIO, 0xd2)
 #define KVM_END_REPLAY    	_IO(KVMIO, 0xd3)
+
+#define KVM_GET_RR_NEXT_EVENT   _IOR(KVMIO, 0xd4, struct rr_event_log_t)
+#define KVM_GET_RR_EVENT_NUMBER   _IOR(KVMIO, 0xd5, struct rr_event_info)
 
 #endif /* __LINUX_KVM_H */

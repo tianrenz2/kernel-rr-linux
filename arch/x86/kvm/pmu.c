@@ -565,7 +565,6 @@ void kvm_pmu_reprogram_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
 			continue;
 
 		if (eventsel_match_perf_hw_id(pmc, perf_hw_id)) {
-			printk(KERN_WARNING "kvm_pmu_reprogram_counter: Found inst counter\n");
 			reprogram_counter(pmu, i);
 			return;
 		} else {
@@ -608,14 +607,12 @@ u64 kvm_pmu_read_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
 		cpl_match = cpl_is_matched(pmc);
 
 		if (event_match && cpl_match) {
-			printk(KERN_WARNING "Found inst counter\n");
 			return pmc_read_counter(pmc);
 		} else {
 			printk(KERN_WARNING "Not inst counter, event_match=%d, cpl_match=%d\n", event_match, cpl_match);
 		}
 	}
 
-	printk(KERN_WARNING "Not found inst counter\n");
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_pmu_read_counter);

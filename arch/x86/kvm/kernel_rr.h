@@ -1,64 +1,5 @@
-#ifndef __KERNEL_RR_H__
-#define __KERNEL_RR_H__
-
 #include <linux/kvm_host.h>
-
-#define EVENT_TYPE_INTERRUPT 0
-#define EVENT_TYPE_EXCEPTION 1
-#define EVENT_TYPE_SYSCALL   2
-
-enum REGS {
-    ZERO,
-    RR_RAX,
-    RR_RCX,
-	RR_RDX,
-	RR_RBX,
-	RR_RSP,
-	RR_RBP,
-	RR_RSI,
-	RR_RDI,
-	RR_R8,
-	RR_R9,
-	RR_R10,
-	RR_R11,
-	RR_R12,
-	RR_R13,
-	RR_R14,
-	RR_R15,
-	RR_RIP,
-	RR_NR_VCPU_REGS,
-};
-
-typedef struct {
-    int delivery_mode;
-	int vector;
-    int trig_mode;
-} lapic_log;
-
-typedef struct {
-    lapic_log *lapic;
-} rr_interrupt;
-
-typedef struct {
-    int exception_index;
-    int error_code;
-    unsigned long cr2;
-} rr_exception;
-
-typedef struct {
-    struct kvm_regs *regs;
-} rr_syscall;
-
-typedef struct rr_event_log_t{
-    int type;
-    union {
-        rr_interrupt *interrupt;
-        rr_exception *exception;
-        rr_syscall  *syscall;
-    } event;
-    struct rr_event_log_t *next;
-    int inst_from_last;
-} rr_event_log;
+#include <asm/kernel_rr.h>
 
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
@@ -80,5 +21,10 @@ void rr_set_reg(struct kvm_vcpu *vcpu, int index, unsigned long val);
 
 void kvm_start_inst_cnt(struct kvm_vcpu *vcpu);
 void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu);
+u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu);
 
-#endif
+int rr_get_event_list_length(void);
+void rr_copy_to_event_list(struct rr_event_list_t *event_list, int len);
+rr_event_log rr_get_next_event(void);
+
+

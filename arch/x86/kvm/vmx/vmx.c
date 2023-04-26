@@ -48,6 +48,7 @@
 #include <asm/spec-ctrl.h>
 #include <asm/virtext.h>
 #include <asm/vmx.h>
+#include <asm/kernel_rr.h>
 
 #include "capabilities.h"
 #include "cpuid.h"
@@ -66,7 +67,6 @@
 #include "vmcs12.h"
 #include "vmx.h"
 #include "x86.h"
-#include "kernel_rr.h"
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");

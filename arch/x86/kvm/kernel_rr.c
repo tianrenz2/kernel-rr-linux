@@ -3,6 +3,8 @@
 #include <asm/uaccess.h>
 #include <linux/buffer_head.h>
 
+#include <asm/kernel_rr.h>
+
 #include "kernel_rr.h"
 
 int in_record = 0;
@@ -10,6 +12,7 @@ int in_replay = 0;
 
 rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
+rr_event_log *rr_event_cur = NULL;
 
 const unsigned long syscall_addr = 0xffffffff8111d0ef;
 const unsigned long pf_excep_addr = 0xffffffff8111e449;
@@ -63,32 +66,49 @@ __maybe_unused static void rr_record_regs(struct kvm_regs *dest_regs, struct kvm
     dest_regs->rflags = src_regs->rflags;
 }
 
-__maybe_unused static void rr_cp_regs(struct kvm_vcpu *vcpu, struct kvm_regs *dest_regs)
+int rr_get_event_list_length(void)
 {
-    dest_regs->rax = vcpu->arch.regs[VCPU_REGS_RAX];
-    dest_regs->rbx = vcpu->arch.regs[VCPU_REGS_RBX];
-    dest_regs->rcx = vcpu->arch.regs[VCPU_REGS_RCX];
-    dest_regs->rdx = vcpu->arch.regs[VCPU_REGS_RDX];
+    rr_event_log *event = rr_event_log_head;
+    int len = 0;
 
-    // dest_regs->rsi = src_regs->rsi;
-    // dest_regs->rdi = src_regs->rdi;
-    // dest_regs->rsp = src_regs->rsp;
-    // dest_regs->rbp = src_regs->rbp;
+    while (event != NULL) {
+        len++;
+        event = event->next;
+    }
 
-    // dest_regs->r8 = src_regs->r8;
-    // dest_regs->r9 = src_regs->r9;
-    // dest_regs->r10 = src_regs->r10;
-    // dest_regs->r11 = src_regs->r11;
-
-    // dest_regs->r12 = src_regs->r12;
-    // dest_regs->r13 = src_regs->r13;
-    // dest_regs->r14 = src_regs->r14;
-    // dest_regs->r15 = src_regs->r15;
-
-    // dest_regs->rip = src_regs->rip;
-    // dest_regs->rflags = src_regs->rflags;
+    return len;
 }
 
+void rr_copy_to_event_list(struct rr_event_list_t *event_list, int len)
+{
+    rr_event_log *event = rr_event_log_head;
+    event_list->length = 0;
+
+    while (event != NULL) {
+        
+        event = event->next;
+    }
+}
+
+rr_event_log rr_get_next_event(void)
+{
+    rr_event_log *event = kmalloc(sizeof(struct rr_event_log_t), GFP_KERNEL);
+
+    if (rr_event_cur == NULL) {
+        return *event;
+    }
+
+    memcpy(event, rr_event_cur, sizeof(struct rr_event_log_t));
+
+    rr_event_cur = rr_event_cur->next;
+
+    return *event;
+}
+
+static void rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
+{
+    event->inst_cnt = kvm_get_inst_cnt(vcpu) - vcpu->rr_start_point;
+}
 
 static void rr_insert_event_log(rr_event_log *event)
 {
@@ -124,9 +144,10 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
     }
 
     event_log->type = EVENT_TYPE_EXCEPTION;
-    event_log->event.exception = except;
+    event_log->event.exception = *except;
     event_log->next = NULL;
 
+    rr_post_handle_event(vcpu, event_log);
     rr_insert_event_log(event_log);
 }
 
@@ -142,12 +163,13 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
     syscall_log = kmalloc(sizeof(rr_syscall), GFP_KERNEL);
 
     rr_get_regs(vcpu, regs);
-    syscall_log->regs = regs;
+    syscall_log->regs = *regs;
 
-    event_log->event.syscall = syscall_log;
+    event_log->event.syscall = *syscall_log;
     event_log->type = EVENT_TYPE_SYSCALL;
     event_log->next = NULL;
 
+    rr_post_handle_event(vcpu, event_log);
     rr_insert_event_log(event_log);
 }
 
@@ -163,11 +185,17 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
     int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
 
-    int_log->lapic = lapic;
+    int_log->lapic = *lapic;
 
-    event_log->event.interrupt = int_log;
+    event_log->event.interrupt = *int_log;
     event_log->type = EVENT_TYPE_INTERRUPT;
     event_log->next = NULL;
+
+    rr_post_handle_event(vcpu, event_log);
+
+    if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
+        return;
+    }
 
     rr_insert_event_log(event_log);
 }
@@ -199,9 +227,9 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
             if (event->type == EVENT_TYPE_EXCEPTION) {
                 printk(KERN_WARNING "except vector=%d error code=%d, addr=%x",
-                       event->event.exception->exception_index,
-                       event->event.exception->error_code,
-                       event->event.exception->cr2);
+                       event->event.exception.exception_index,
+                       event->event.exception.error_code,
+                       event->event.exception.cr2);
                 event_pf_excep++;
             }
 
@@ -209,20 +237,28 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         }
 
+        printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d\n",
+               event_syscall_num, event_int_num, event_pf_excep);
+
         kvm_make_request(KVM_REQ_END_RECORD, vcpu);
+
+        rr_event_cur = rr_event_log_head;
+
     } else {
         if (rr_event_log_head != NULL) {
             rr_event_log *pre_event = rr_event_log_head;
-            rr_event_log *event = pre_event->next;
+            rr_event_log *event;
 
             while (pre_event != NULL) {
+                event = pre_event->next;
                 kfree(pre_event);
                 pre_event = event;
-                event = pre_event->next;
             }
 
             rr_event_log_head = NULL;
             rr_event_log_tail = NULL;
+
+            printk(KERN_INFO "RR initialized\n");
         }
 
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
@@ -297,8 +333,3 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
     return 0;
 }
 EXPORT_SYMBOL_GPL(rr_handle_breakpoint);
-
-void inject_syscall_event(struct kvm_vcpu *vcpu, rr_syscall *syscall_log)
-{
-    rr_set_regs(vcpu, syscall_log->regs);
-}
