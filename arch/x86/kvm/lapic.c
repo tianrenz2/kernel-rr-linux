@@ -1158,12 +1158,6 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 		break;
 	}
 
-	if (rr_in_record()) {
-		if (level > 0 && result > 0) {
-			rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(delivery_mode, vector, trig_mode));
-		}
-	}
-
 	return result;
 }
 

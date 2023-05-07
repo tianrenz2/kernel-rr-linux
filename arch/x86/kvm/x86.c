@@ -322,7 +322,7 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 	vcpu->in_hype = true;
 
 	// Setting up MSRs for performance counting.
-	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 140737488355329, false);
+	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 0, false);
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 30064771087, false);
 
@@ -7402,6 +7402,8 @@ static int kernel_pio(struct kvm_vcpu *vcpu, void *pd)
 	return r;
 }
 
+int dump_point = 0;
+
 static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
 			       unsigned short port,
 			       unsigned int count, bool in)
@@ -7421,6 +7423,18 @@ static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
 	vcpu->run->io.count = count;
 	vcpu->run->io.port = port;
 
+	if (in && vcpu->run->io.port == 100) {
+		if (dump_point == 500) {	
+			dump_stack();
+		}
+		dump_point++;
+
+		// printk(KERN_INFO "pio data %d\n", dump_point);
+		// for (int i=0; i < size * count; i++) {
+		// 	printk(KERN_INFO "pio data: %p", val);
+		// }
+
+	}
 	return 0;
 }
 
@@ -8664,6 +8678,10 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	emulator_pio_in(vcpu, vcpu->arch.pio.size, vcpu->arch.pio.port, &val, 1);
 	kvm_rax_write(vcpu, val);
 
+	if(rr_in_record()) {
+		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
+	}
+
 	return kvm_skip_emulated_instruction(vcpu);
 }
 
@@ -8696,7 +8714,7 @@ int kvm_fast_pio(struct kvm_vcpu *vcpu, int size, unsigned short port, int in)
 		ret = kvm_fast_pio_in(vcpu, size, port);
 	else
 		ret = kvm_fast_pio_out(vcpu, size, port);
-	return ret && kvm_skip_emulated_instruction(vcpu);
+	return ret && kvm_skip_emulated_instruction(vcpu);;
 }
 EXPORT_SYMBOL_GPL(kvm_fast_pio);
 
@@ -9526,6 +9544,11 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			kvm_queue_interrupt(vcpu, kvm_cpu_get_interrupt(vcpu), false);
 			static_call(kvm_x86_set_irq)(vcpu);
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
+
+			if (rr_in_record()) {
+				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, vcpu->arch.interrupt.nr, 1));
+				vcpu->int_injected++;
+			}
 		}
 		if (kvm_cpu_has_injectable_intr(vcpu))
 			static_call(kvm_x86_enable_irq_window)(vcpu);
@@ -10343,7 +10366,19 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
 
 	if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
-		rr_handle_breakpoint(vcpu);
+		if (rr_in_record()) {
+			uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);
+			unsigned long rip = kvm_get_linear_rip(vcpu);
+			if (inst_cnt == vcpu->last_inst_cnt) {
+				printk(KERN_WARNING "repeatitive inst cnt\n");
+			}
+			printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
+
+			vcpu->last_rip = rip;
+			vcpu->last_inst_cnt = inst_cnt;
+
+			rr_handle_breakpoint(vcpu);
+		}
 	}
 
 	return r;

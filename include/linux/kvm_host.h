@@ -371,6 +371,10 @@ struct kvm_vcpu {
 
 	bool in_hype;
 	u64  rr_start_point;
+	int int_injected;
+
+	unsigned long last_rip;
+	uint64_t last_inst_cnt;
 };
 
 /*
