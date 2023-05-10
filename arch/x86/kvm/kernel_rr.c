@@ -3,6 +3,9 @@
 #include <asm/uaccess.h>
 #include <linux/buffer_head.h>
 
+#include "kvm_cache_regs.h"
+#include "kvm_emulate.h"
+
 #include <asm/kernel_rr.h>
 
 #include "kernel_rr.h"
@@ -14,8 +17,11 @@ rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
 rr_event_log *rr_event_cur = NULL;
 
-const unsigned long syscall_addr = 0xffffffff8111d00f;
+const unsigned long syscall_addr = 0xffffffff81200000;
 const unsigned long pf_excep_addr = 0xffffffff81200aa0;
+
+const unsigned long cfu_addr1 = 0xffffffff810b4f7d;
+const unsigned long cfu_addr2 = 0xffffffff810afc0d;
 
 static rr_exception* new_rr_exception(int vector, int error_code, unsigned long cr2)
 {
@@ -213,6 +219,52 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     rr_insert_event_log(event_log);
 }
 
+static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
+{
+
+    struct kvm_regs *regs;
+    rr_event_log *event_log;
+    void *val;
+    int ret;
+    struct x86_emulate_ctxt *emulate_ctxt;
+    rr_cfu *cfu_log;
+    int i;
+
+    cfu_log = kmalloc(sizeof(rr_cfu), GFP_KERNEL);
+
+    regs = kmalloc(sizeof(struct kvm_regs), GFP_KERNEL);
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+
+    event_log->type = EVENT_TYPE_CFU;
+
+    rr_get_regs(vcpu, regs);
+
+    emulate_ctxt = vcpu->arch.emulate_ctxt;
+
+    printk(KERN_INFO "CFU: src addr=%lx, len=%d\n", regs->rsi, regs->rdx);
+
+    ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
+                                           regs->rsi, cfu_log->data, regs->rdx,
+                                           &emulate_ctxt->exception);
+
+    if (ret != X86EMUL_PROPAGATE_FAULT) {
+        printk(KERN_WARNING "Failed to read addr %lx, ret %d\n", regs->rsi, ret);
+    }
+
+    for (i = 0; i < regs->rdx; i++) {
+         printk(KERN_INFO "data read: %u\n", cfu_log->data[i]);
+    }
+
+    event_log->event.cfu = *cfu_log;
+
+    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+
+    rr_post_handle_event(vcpu, event_log);
+    rr_insert_event_log(event_log);
+
+    return;
+}
+
 static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
 {
     rr_event_log *event_log;
@@ -222,7 +274,7 @@ static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
     io_input = kmalloc(sizeof(rr_io_input), GFP_KERNEL);
 
-    printk(KERN_INFO "Recording IO IN: %lx\n", *io_val);
+    // printk(KERN_INFO "Recording IO IN: %lx\n", *io_val);
 
     io_input->value = *io_val;
 
@@ -253,6 +305,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
         int event_syscall_num = 0;
         int event_pf_excep = 0;
         int event_io_in = 0;
+        int event_cfu = 0;
 
         printk(KERN_WARNING "=== Report recorded events ===\n");
         while (event != NULL) {
@@ -263,7 +316,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
             if (event->type == EVENT_TYPE_SYSCALL) {
                 event_syscall_num++;
-                printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
+                // printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
             }
 
             if (event->type == EVENT_TYPE_EXCEPTION) {
@@ -276,15 +329,19 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
             if (event->type == EVENT_TYPE_IO_IN) {
                 event_io_in++;
-                printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
+                // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
+            }
+
+            if (event->type == EVENT_TYPE_CFU) {
+                event_cfu++;
             }
 
             event = event->next;
 
         }
 
-        printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d\n",
-               event_syscall_num, event_int_num, event_pf_excep, event_io_in);
+        printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d\n",
+               event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu);
 
         kvm_make_request(KVM_REQ_END_RECORD, vcpu);
 
@@ -356,6 +413,9 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     case EVENT_TYPE_IO_IN:
         handle_event_io_in(vcpu, opaque);
         break;
+    case EVENT_TYPE_CFU:
+        handle_event_cfu(vcpu, opaque);
+        break;
     default:
         break;
     }
@@ -377,6 +437,12 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
             break;
         case pf_excep_addr:
             rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
+            break;
+        case cfu_addr1:
+            rr_record_event(vcpu, EVENT_TYPE_CFU, NULL);
+            break;
+        case cfu_addr2:
+            rr_record_event(vcpu, EVENT_TYPE_CFU, NULL);
             break;
         default:
             break;

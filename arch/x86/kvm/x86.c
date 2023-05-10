@@ -8678,7 +8678,7 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	emulator_pio_in(vcpu, vcpu->arch.pio.size, vcpu->arch.pio.port, &val, 1);
 	kvm_rax_write(vcpu, val);
 
-	if(rr_in_record()) {
+	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
 		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
 	}
 
@@ -8714,7 +8714,7 @@ int kvm_fast_pio(struct kvm_vcpu *vcpu, int size, unsigned short port, int in)
 		ret = kvm_fast_pio_in(vcpu, size, port);
 	else
 		ret = kvm_fast_pio_out(vcpu, size, port);
-	return ret && kvm_skip_emulated_instruction(vcpu);;
+	return ret && kvm_skip_emulated_instruction(vcpu);
 }
 EXPORT_SYMBOL_GPL(kvm_fast_pio);
 
@@ -10372,7 +10372,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			if (inst_cnt == vcpu->last_inst_cnt) {
 				printk(KERN_WARNING "repeatitive inst cnt\n");
 			}
-			printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
+			// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
 
 			vcpu->last_rip = rip;
 			vcpu->last_inst_cnt = inst_cnt;
