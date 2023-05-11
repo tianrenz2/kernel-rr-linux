@@ -7433,8 +7433,14 @@ static __init void vmx_set_cpu_caps(void)
 
 	/* CPUID 0xD.1 */
 	supported_xss = 0;
-	if (!cpu_has_vmx_xsaves())
-		kvm_cpu_cap_clear(X86_FEATURE_XSAVES);
+
+	// if (!cpu_has_vmx_xsaves())
+	kvm_cpu_cap_clear(X86_FEATURE_XSAVES);
+	kvm_cpu_cap_clear(X86_FEATURE_XSAVEC);
+	printk(KERN_INFO "Disbled xsaves and xavec for RR\n");
+	// else
+	// 	printk(KERN_INFO "xsamve enabled\n");
+	// kvm_cpu_cap_set(X86_FEATURE_XSAVEOPT);
 
 	/* CPUID 0x80000001 and 0x7 (RDPID) */
 	if (!cpu_has_vmx_rdtscp()) {

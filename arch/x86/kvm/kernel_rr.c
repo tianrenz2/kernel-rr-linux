@@ -20,8 +20,15 @@ rr_event_log *rr_event_cur = NULL;
 const unsigned long syscall_addr = 0xffffffff81200000;
 const unsigned long pf_excep_addr = 0xffffffff81200aa0;
 
-const unsigned long cfu_addr1 = 0xffffffff810b4f7d;
+// const unsigned long cfu_addr1 = 0xffffffff810b4f7d;
+// const unsigned long cfu_addr2 = 0xffffffff810afc0d;
+
+
+const unsigned long cfu_addr1 = 0xffffffff810b4f9c;
 const unsigned long cfu_addr2 = 0xffffffff810afc0d;
+
+// target_ulong cfu_addr1 = 0xffffffff811183e0; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
+// target_ulong cfu_addr2 = 0xffffffff810afc0d; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
 
 static rr_exception* new_rr_exception(int vector, int error_code, unsigned long cr2)
 {
