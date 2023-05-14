@@ -24,8 +24,8 @@ const unsigned long pf_excep_addr = 0xffffffff81200aa0;
 // const unsigned long cfu_addr2 = 0xffffffff810afc0d;
 
 
-const unsigned long cfu_addr1 = 0xffffffff810b4f9c;
-const unsigned long cfu_addr2 = 0xffffffff810afc0d;
+const unsigned long cfu_addr1 = 0xffffffff810afc12;
+const unsigned long cfu_addr2 = 0xffffffff810b4fb8;
 
 // target_ulong cfu_addr1 = 0xffffffff811183e0; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
 // target_ulong cfu_addr2 = 0xffffffff810afc0d; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
@@ -118,7 +118,7 @@ rr_event_log rr_get_next_event(void)
     return *event;
 }
 
-static void rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
+static int rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
 {
     // uint64_t cur_inst = kvm_get_inst_cnt(vcpu);
 
@@ -127,8 +127,16 @@ static void rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
     // } else {
     //     event->inst_cnt = cur_inst - vcpu->rr_start_point - 1;
     // }
+    
+    unsigned long cnt = kvm_get_inst_cnt(vcpu) - vcpu->rr_start_point;
 
-    event->inst_cnt = kvm_get_inst_cnt(vcpu) - vcpu->rr_start_point;
+    if (rr_event_cur != NULL && cnt == rr_event_cur->inst_cnt) {
+        return 0;
+    }
+
+    event->inst_cnt = cnt;
+
+    return 1;
 }
 
 static void rr_insert_event_log(rr_event_log *event)
@@ -168,8 +176,8 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
     event_log->event.exception = *except;
     event_log->next = NULL;
 
-    rr_post_handle_event(vcpu, event_log);
-    rr_insert_event_log(event_log);
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
 }
 
 
@@ -192,8 +200,8 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 
     // printk(KERN_INFO "RR Record: syscall=%lu", regs->rax);
 
-    rr_post_handle_event(vcpu, event_log);
-    rr_insert_event_log(event_log);
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
 }
 
 static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
@@ -217,13 +225,12 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    rr_post_handle_event(vcpu, event_log);
+    // if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
+    //     return;
+    // }
 
-    if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
-        return;
-    }
-
-    rr_insert_event_log(event_log);
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
 }
 
 static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
@@ -236,6 +243,9 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     struct x86_emulate_ctxt *emulate_ctxt;
     rr_cfu *cfu_log;
     int i;
+    unsigned long long dest_addr;
+    unsigned long *cfu_ip = (unsigned long *)opaque;
+    unsigned long len;
 
     cfu_log = kmalloc(sizeof(rr_cfu), GFP_KERNEL);
 
@@ -248,26 +258,37 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
 
     emulate_ctxt = vcpu->arch.emulate_ctxt;
 
-    printk(KERN_INFO "CFU: src addr=%lx, len=%d\n", regs->rsi, regs->rdx);
+    if (*cfu_ip == cfu_addr1) {
+        len = regs->rdx;
+    } else if (*cfu_ip == cfu_addr2) {
+        len = regs->rbx;
+    }
+
+    dest_addr = regs->rdi - regs->rdx;
+    printk(KERN_INFO "CFU: read from dest addr=%lx, len=%d\n", dest_addr, len);
 
     ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
-                                           regs->rsi, cfu_log->data, regs->rdx,
+                                           dest_addr, cfu_log->data, len,
                                            &emulate_ctxt->exception);
 
     if (ret != X86EMUL_PROPAGATE_FAULT) {
         printk(KERN_WARNING "Failed to read addr %lx, ret %d\n", regs->rsi, ret);
     }
 
-    for (i = 0; i < regs->rdx; i++) {
+    for (i = 0; i < len; i++) {
          printk(KERN_INFO "data read: %u\n", cfu_log->data[i]);
     }
+
+    cfu_log->src_addr = regs->rsi;
+    cfu_log->dest_addr = dest_addr;
+    cfu_log->len = len;
 
     event_log->event.cfu = *cfu_log;
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    rr_post_handle_event(vcpu, event_log);
-    rr_insert_event_log(event_log);
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
 
     return;
 }
@@ -290,9 +311,8 @@ static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
     event_log->event.io_input = *io_input;
     event_log->next = NULL;
 
-    rr_post_handle_event(vcpu, event_log);
-
-    rr_insert_event_log(event_log);
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
 
     return;
 }
@@ -446,10 +466,10 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
             rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
             break;
         case cfu_addr1:
-            rr_record_event(vcpu, EVENT_TYPE_CFU, NULL);
+            rr_record_event(vcpu, EVENT_TYPE_CFU, &cfu_addr1);
             break;
         case cfu_addr2:
-            rr_record_event(vcpu, EVENT_TYPE_CFU, NULL);
+            rr_record_event(vcpu, EVENT_TYPE_CFU, &cfu_addr2);
             break;
         default:
             break;
