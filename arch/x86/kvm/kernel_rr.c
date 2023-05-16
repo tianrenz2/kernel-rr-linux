@@ -18,7 +18,7 @@ rr_event_log *rr_event_log_tail = NULL;
 rr_event_log *rr_event_cur = NULL;
 
 const unsigned long syscall_addr = 0xffffffff81200000;
-const unsigned long pf_excep_addr = 0xffffffff81200aa0;
+const unsigned long pf_excep_addr = 0xffffffff8111e369;
 
 // const unsigned long cfu_addr1 = 0xffffffff810b4f7d;
 // const unsigned long cfu_addr2 = 0xffffffff810afc0d;
@@ -26,6 +26,7 @@ const unsigned long pf_excep_addr = 0xffffffff81200aa0;
 
 const unsigned long cfu_addr1 = 0xffffffff810afc12;
 const unsigned long cfu_addr2 = 0xffffffff810b4fb8;
+const unsigned long strncpy_addr = 0xffffffff810cbd51;
 
 // target_ulong cfu_addr1 = 0xffffffff811183e0; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
 // target_ulong cfu_addr2 = 0xffffffff810afc0d; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
@@ -163,14 +164,20 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
 
     except = (rr_exception *)opaque;
 
+
+    // rr_get_regs(vcpu, regs);
+
     switch (except->exception_index) {
         case PF_VECTOR:
             except->error_code = get_rsi(vcpu);
             except->cr2 = vcpu->arch.cr2;
+            printk(KERN_INFO "error code: %d\n", except->error_code);
             break;
         default:
             return;
     }
+
+    // except->regs = *regs;
 
     event_log->type = EVENT_TYPE_EXCEPTION;
     event_log->event.exception = *except;
@@ -262,9 +269,17 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         len = regs->rdx;
     } else if (*cfu_ip == cfu_addr2) {
         len = regs->rbx;
+    } else if (*cfu_ip == strncpy_addr) {
+        len = regs->rax;
     }
 
-    dest_addr = regs->rdi - regs->rdx;
+    if (*cfu_ip == strncpy_addr) {
+        printk(KERN_INFO "strncpy_addr intercepted\n");
+        dest_addr = regs->rdi;
+    } else {
+        dest_addr = regs->rdi - regs->rdx;
+    }
+
     printk(KERN_INFO "CFU: read from dest addr=%lx, len=%d\n", dest_addr, len);
 
     ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
@@ -275,9 +290,9 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         printk(KERN_WARNING "Failed to read addr %lx, ret %d\n", regs->rsi, ret);
     }
 
-    for (i = 0; i < len; i++) {
-         printk(KERN_INFO "data read: %u\n", cfu_log->data[i]);
-    }
+    // for (i = 0; i < len; i++) {
+    //      printk(KERN_INFO "data read: %u\n", cfu_log->data[i]);
+    // }
 
     cfu_log->src_addr = regs->rsi;
     cfu_log->dest_addr = dest_addr;
@@ -343,7 +358,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
             if (event->type == EVENT_TYPE_SYSCALL) {
                 event_syscall_num++;
-                // printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
+                printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
             }
 
             if (event->type == EVENT_TYPE_EXCEPTION) {
@@ -361,6 +376,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
             if (event->type == EVENT_TYPE_CFU) {
                 event_cfu++;
+                printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
             }
 
             event = event->next;
@@ -458,6 +474,8 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
 
     addr = kvm_get_linear_rip(vcpu);
 
+    // printk(KERN_INFO "breakpoint addr 0x%lx\n", addr);
+
     switch(addr) {
         case syscall_addr:
             rr_record_event(vcpu, EVENT_TYPE_SYSCALL, NULL);
@@ -466,10 +484,9 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
             rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
             break;
         case cfu_addr1:
-            rr_record_event(vcpu, EVENT_TYPE_CFU, &cfu_addr1);
-            break;
         case cfu_addr2:
-            rr_record_event(vcpu, EVENT_TYPE_CFU, &cfu_addr2);
+        case strncpy_addr:
+            rr_record_event(vcpu, EVENT_TYPE_CFU, &addr);
             break;
         default:
             break;
