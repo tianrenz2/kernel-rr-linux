@@ -7402,8 +7402,6 @@ static int kernel_pio(struct kvm_vcpu *vcpu, void *pd)
 	return r;
 }
 
-int dump_point = 0;
-
 static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
 			       unsigned short port,
 			       unsigned int count, bool in)
@@ -7423,18 +7421,6 @@ static int emulator_pio_in_out(struct kvm_vcpu *vcpu, int size,
 	vcpu->run->io.count = count;
 	vcpu->run->io.port = port;
 
-	if (in && vcpu->run->io.port == 100) {
-		if (dump_point == 500) {	
-			dump_stack();
-		}
-		dump_point++;
-
-		// printk(KERN_INFO "pio data %d\n", dump_point);
-		// for (int i=0; i < size * count; i++) {
-		// 	printk(KERN_INFO "pio data: %p", val);
-		// }
-
-	}
 	return 0;
 }
 

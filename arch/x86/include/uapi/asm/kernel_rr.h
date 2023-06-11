@@ -8,6 +8,7 @@
 #define EVENT_TYPE_SYSCALL   2
 #define EVENT_TYPE_IO_IN     3
 #define EVENT_TYPE_CFU       4
+#define EVENT_TYPE_RANDOM    5
 
 enum REGS {
     ZERO,
@@ -45,6 +46,7 @@ typedef struct {
     unsigned long src_addr;
     unsigned long dest_addr;
     unsigned long len;
+    unsigned long rdx;
     u8 data[1024];
 } rr_cfu;
 
@@ -56,12 +58,18 @@ typedef struct {
     int exception_index;
     int error_code;
     unsigned long cr2;
-    // struct kvm_regs regs;
+    struct kvm_regs regs;
 } rr_exception;
 
 typedef struct {
     struct kvm_regs regs;
 } rr_syscall;
+
+typedef struct {
+    unsigned long buf;
+    unsigned long len;
+    u8 data[1024];
+} rr_random;
 
 typedef struct rr_event_log_t{
     int type;
@@ -71,6 +79,7 @@ typedef struct rr_event_log_t{
         rr_syscall  syscall;
         rr_io_input io_input;
         rr_cfu cfu;
+        rr_random rand;
     } event;
     struct rr_event_log_t *next;
     uint64_t inst_cnt;

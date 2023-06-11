@@ -20,13 +20,16 @@ rr_event_log *rr_event_cur = NULL;
 const unsigned long syscall_addr = 0xffffffff81200000;
 const unsigned long pf_excep_addr = 0xffffffff8111e369;
 
-// const unsigned long cfu_addr1 = 0xffffffff810b4f7d;
-// const unsigned long cfu_addr2 = 0xffffffff810afc0d;
+// const unsigned long copy_from_iter_addr = 0xffffffff810afbf1;
+const unsigned long copy_from_iter_addr = 0xffffffff810afc14;
 
+// const unsigned long copy_from_user_addr = 0xffffffff810b4f7d;
+const unsigned long copy_from_user_addr = 0xffffffff810b4fb8;
 
-const unsigned long cfu_addr1 = 0xffffffff810afc12;
-const unsigned long cfu_addr2 = 0xffffffff810b4fb8;
 const unsigned long strncpy_addr = 0xffffffff810cbd51;
+const unsigned long get_user_addr = 0xffffffff81118850;
+const unsigned long strnlen_user_addr = 0xffffffff810cbe4a;
+const unsigned long random_bytes_addr = 0xffffffff810e1e25;
 
 // target_ulong cfu_addr1 = 0xffffffff811183e0; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
 // target_ulong cfu_addr2 = 0xffffffff810afc0d; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
@@ -165,7 +168,7 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
     except = (rr_exception *)opaque;
 
 
-    // rr_get_regs(vcpu, regs);
+    rr_get_regs(vcpu, regs);
 
     switch (except->exception_index) {
         case PF_VECTOR:
@@ -177,7 +180,7 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
             return;
     }
 
-    // except->regs = *regs;
+    except->regs = *regs;
 
     event_log->type = EVENT_TYPE_EXCEPTION;
     event_log->event.exception = *except;
@@ -250,9 +253,11 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     struct x86_emulate_ctxt *emulate_ctxt;
     rr_cfu *cfu_log;
     int i;
-    unsigned long long dest_addr;
+    unsigned long long dest_addr, src_addr;
     unsigned long *cfu_ip = (unsigned long *)opaque;
     unsigned long len;
+    bool do_read_mem = false;
+    int j;
 
     cfu_log = kmalloc(sizeof(rr_cfu), GFP_KERNEL);
 
@@ -265,38 +270,49 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
 
     emulate_ctxt = vcpu->arch.emulate_ctxt;
 
-    if (*cfu_ip == cfu_addr1) {
+    if (*cfu_ip == copy_from_iter_addr) {
         len = regs->rdx;
-    } else if (*cfu_ip == cfu_addr2) {
+        dest_addr = regs->rdi - len;
+        src_addr = regs->rsi - len;
+        do_read_mem = true;
+    } else if (*cfu_ip == copy_from_user_addr) {
         len = regs->rbx;
+        src_addr = regs->rsi - len;
+        dest_addr = regs->rdi - len;
+        do_read_mem = true;
     } else if (*cfu_ip == strncpy_addr) {
         len = regs->rax;
-    }
-
-    if (*cfu_ip == strncpy_addr) {
-        printk(KERN_INFO "strncpy_addr intercepted\n");
+        src_addr = regs->r8;
         dest_addr = regs->rdi;
-    } else {
-        dest_addr = regs->rdi - regs->rdx;
+        do_read_mem = true;
+    } else if (*cfu_ip == get_user_addr) {
+       cfu_log->rdx = regs->rdx; 
+       printk(KERN_INFO "get user log: %lx\n", cfu_log->rdx);
+    } else if (*cfu_ip == strnlen_user_addr) {
+        cfu_log->len = regs->rax;
+        printk(KERN_INFO "strnlen_user_addr happened: %d\n", cfu_log->len);
     }
 
-    printk(KERN_INFO "CFU: read from dest addr=%lx, len=%d\n", dest_addr, len);
+    if (do_read_mem) {
+        cfu_log->src_addr = src_addr;
+        cfu_log->dest_addr = dest_addr;
+        cfu_log->len = len;
 
-    ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
-                                           dest_addr, cfu_log->data, len,
-                                           &emulate_ctxt->exception);
+        ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
+                                            cfu_log->dest_addr, cfu_log->data, cfu_log->len,
+                                            &emulate_ctxt->exception);
 
-    if (ret != X86EMUL_PROPAGATE_FAULT) {
-        printk(KERN_WARNING "Failed to read addr %lx, ret %d\n", regs->rsi, ret);
+        printk(KERN_INFO "CFU: read from addr=0x%lx, len=%d, ret=%d, rip=0x%lx\n",
+               cfu_log->dest_addr, len, ret, regs->rip);
+
+        if (ret != X86EMUL_PROPAGATE_FAULT) {
+            printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+                   cfu_log->dest_addr, ret);
+        }
+        for (j=0; j < 8; j++) {
+            printk(KERN_INFO "CFU data: %u\n", cfu_log->data[0]);
+        }
     }
-
-    // for (i = 0; i < len; i++) {
-    //      printk(KERN_INFO "data read: %u\n", cfu_log->data[i]);
-    // }
-
-    cfu_log->src_addr = regs->rsi;
-    cfu_log->dest_addr = dest_addr;
-    cfu_log->len = len;
 
     event_log->event.cfu = *cfu_log;
 
@@ -306,6 +322,42 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         rr_insert_event_log(event_log);
 
     return;
+}
+
+static void handle_event_random_generator(struct kvm_vcpu *vcpu, void *opaque)
+{
+    struct kvm_regs *regs;
+    rr_event_log *event_log;
+    rr_random *rand_log;
+    struct x86_emulate_ctxt *emulate_ctxt;
+    int ret;
+
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    rand_log = kmalloc(sizeof(rr_random), GFP_KERNEL);
+	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+
+    event_log->type = EVENT_TYPE_RANDOM;
+
+    rr_get_regs(vcpu, regs);
+
+    rand_log->buf = regs->r15;
+    rand_log->len = regs->r14 - regs->r15;
+    
+    emulate_ctxt = vcpu->arch.emulate_ctxt;
+
+    ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
+                                           rand_log->buf, rand_log->data, rand_log->len,
+                                           &emulate_ctxt->exception);
+    if (ret != X86EMUL_PROPAGATE_FAULT) {
+        printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+               rand_log->buf, ret);
+    }
+
+    event_log->event.rand = *rand_log;
+    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
 }
 
 static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
@@ -348,6 +400,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
         int event_pf_excep = 0;
         int event_io_in = 0;
         int event_cfu = 0;
+        int event_random = 0;
 
         printk(KERN_WARNING "=== Report recorded events ===\n");
         while (event != NULL) {
@@ -377,6 +430,12 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
             if (event->type == EVENT_TYPE_CFU) {
                 event_cfu++;
                 printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
+            }
+
+            if (event->type == EVENT_TYPE_RANDOM) {
+                event_random++;
+                printk(KERN_INFO "RR Record: Random rip=0x%lx, buf=0x%lx, len=%lu, inst_cnt=%lu",
+                       event->rip, event->event.rand.buf, event->event.rand.len, event->inst_cnt);
             }
 
             event = event->next;
@@ -459,6 +518,9 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     case EVENT_TYPE_CFU:
         handle_event_cfu(vcpu, opaque);
         break;
+    case EVENT_TYPE_RANDOM:
+        handle_event_random_generator(vcpu, opaque);
+        break;
     default:
         break;
     }
@@ -483,11 +545,15 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
         case pf_excep_addr:
             rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
             break;
-        case cfu_addr1:
-        case cfu_addr2:
+        case copy_from_iter_addr:
+        case copy_from_user_addr:
         case strncpy_addr:
+        case get_user_addr:
+        case strnlen_user_addr:
             rr_record_event(vcpu, EVENT_TYPE_CFU, &addr);
             break;
+        case random_bytes_addr:
+            rr_record_event(vcpu, EVENT_TYPE_RANDOM, NULL);
         default:
             break;
     }
