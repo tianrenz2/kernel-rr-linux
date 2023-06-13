@@ -271,7 +271,7 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     emulate_ctxt = vcpu->arch.emulate_ctxt;
 
     if (*cfu_ip == copy_from_iter_addr) {
-        len = regs->rdx;
+        len = regs->r14;
         dest_addr = regs->rdi - len;
         src_addr = regs->rsi - len;
         do_read_mem = true;
