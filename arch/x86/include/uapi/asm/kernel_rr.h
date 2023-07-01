@@ -47,7 +47,7 @@ typedef struct {
     unsigned long dest_addr;
     unsigned long len;
     unsigned long rdx;
-    u8 data[1024];
+    u8 data[4096];
 } rr_cfu;
 
 typedef struct {
@@ -85,6 +85,12 @@ typedef struct rr_event_log_t{
     uint64_t inst_cnt;
     unsigned long rip;
 } rr_event_log;
+
+typedef struct rr_mem_access_log_t {
+    unsigned long gpa;
+    unsigned long rip;
+    struct rr_mem_access_log_t *next;
+} rr_mem_access_log;
 
 typedef struct rr_event_list_t {
     rr_event_log *item;

@@ -61,6 +61,7 @@
 #include "async_pf.h"
 #include "kvm_mm.h"
 #include "vfio.h"
+#include "kernel_rr.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/kvm.h>
@@ -3165,11 +3166,14 @@ int kvm_clear_guest(struct kvm *kvm, gpa_t gpa, unsigned long len)
 }
 EXPORT_SYMBOL_GPL(kvm_clear_guest);
 
+bool marked = false;
+
 void mark_page_dirty_in_slot(struct kvm *kvm,
 			     const struct kvm_memory_slot *memslot,
 		 	     gfn_t gfn)
 {
 	struct kvm_vcpu *vcpu = kvm_get_running_vcpu();
+	u64 gpa;
 
 #ifdef CONFIG_HAVE_KVM_DIRTY_RING
 	if (WARN_ON_ONCE(!vcpu) || WARN_ON_ONCE(vcpu->kvm != kvm))
@@ -3179,6 +3183,21 @@ void mark_page_dirty_in_slot(struct kvm *kvm,
 	if (memslot && kvm_slot_dirty_track_enabled(memslot)) {
 		unsigned long rel_gfn = gfn - memslot->base_gfn;
 		u32 slot = (memslot->as_id << 16) | memslot->id;
+		
+		if (static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+			gpa = gfn << PAGE_SHIFT;
+
+			if (memslot->gpa != 0) {
+				if (gpa != memslot->gpa) {
+					gpa = memslot->gpa;
+				}
+	
+				// printk(KERN_INFO "mark_page_dirty_in_slot: gpa=0x%lx, base gpa=0x%lx\n",
+				// 	   gpa, memslot->base_gfn << PAGE_SHIFT);				
+			}
+
+			rr_trace_memory_write(vcpu, gpa);
+		}
 
 		if (kvm->dirty_ring_size)
 			kvm_dirty_ring_push(&vcpu->dirty_ring,
@@ -3203,6 +3222,7 @@ void kvm_vcpu_mark_page_dirty(struct kvm_vcpu *vcpu, gfn_t gfn)
 	struct kvm_memory_slot *memslot;
 
 	memslot = kvm_vcpu_gfn_to_memslot(vcpu, gfn);
+	memslot->gpa = gfn << PAGE_SHIFT;
 	mark_page_dirty_in_slot(vcpu->kvm, memslot, gfn);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_mark_page_dirty);
@@ -4507,7 +4527,6 @@ static long kvm_vm_ioctl(struct file *filp,
 	}
 	case KVM_GET_DIRTY_LOG: {
 		struct kvm_dirty_log log;
-
 		r = -EFAULT;
 		if (copy_from_user(&log, argp, sizeof(log)))
 			goto out;
@@ -4517,7 +4536,6 @@ static long kvm_vm_ioctl(struct file *filp,
 #ifdef CONFIG_KVM_GENERIC_DIRTYLOG_READ_PROTECT
 	case KVM_CLEAR_DIRTY_LOG: {
 		struct kvm_clear_dirty_log log;
-
 		r = -EFAULT;
 		if (copy_from_user(&log, argp, sizeof(log)))
 			goto out;

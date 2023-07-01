@@ -27,4 +27,7 @@ int rr_get_event_list_length(void);
 void rr_copy_to_event_list(struct rr_event_list_t *event_list, int len);
 rr_event_log rr_get_next_event(void);
 
-
+void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa);
+rr_mem_access_log rr_get_next_mem_log(void);
+int rr_get_mem_log_list_length(void);
+void rr_clear_mem_log(void);

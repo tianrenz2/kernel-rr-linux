@@ -571,6 +571,7 @@ struct kvm_memory_slot {
 	u32 flags;
 	short id;
 	u16 as_id;
+	gpa_t gpa;
 };
 
 static inline bool kvm_slot_dirty_track_enabled(const struct kvm_memory_slot *slot)

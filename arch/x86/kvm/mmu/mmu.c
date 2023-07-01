@@ -1216,6 +1216,8 @@ static bool spte_write_protect(u64 *sptep, bool pt_protect)
 {
 	u64 spte = *sptep;
 
+	printk(KERN_INFO "Write protect PTE\n");
+
 	if (!is_writable_pte(spte) &&
 	      !(pt_protect && spte_can_locklessly_be_made_writable(spte)))
 		return false;
@@ -1399,6 +1401,7 @@ int kvm_cpu_dirty_log_size(void)
 	return kvm_x86_ops.cpu_dirty_log_size;
 }
 
+// tianren: write protect
 bool kvm_mmu_slot_gfn_write_protect(struct kvm *kvm,
 				    struct kvm_memory_slot *slot, u64 gfn,
 				    int min_level)
@@ -3085,6 +3088,7 @@ fast_pf_fix_direct_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 	if (cmpxchg64(sptep, old_spte, new_spte) != old_spte)
 		return false;
 
+	printk(KERN_INFO "fast_pf_fix_direct_spte\n");
 	if (is_writable_pte(new_spte) && !is_writable_pte(old_spte))
 		mark_page_dirty_in_slot(vcpu->kvm, fault->slot, fault->gfn);
 
@@ -4012,6 +4016,8 @@ static int direct_page_fault(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault
 
 	fault->gfn = fault->addr >> PAGE_SHIFT;
 	fault->slot = kvm_vcpu_gfn_to_memslot(vcpu, fault->gfn);
+	if (fault->slot != NULL)
+		fault->slot->gpa = fault->addr;
 
 	if (page_fault_handle_page_track(vcpu, fault))
 		return RET_PF_EMULATE;

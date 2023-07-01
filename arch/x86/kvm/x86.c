@@ -5308,6 +5308,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		struct kvm_xcrs *xcrs;
 		struct rr_event_log_t *event;
 		struct rr_event_info *event_info;
+		struct rr_mem_log_t *mem_log;
 		void *buffer;
 	} u;
 
@@ -5759,30 +5760,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		if (copy_to_user(user_event_log, &event_log, sizeof(rr_event_log)))
 			goto out;
 
-		// if (copy_to_user(user_event_log->event, &event_log->event, sizeof(rr_interrupt)))
-		// 	goto out;
-
-		// switch (event_log->type)
-		// {
-		// case EVENT_TYPE_INTERRUPT:
-		// 	if (copy_to_user(user_event_log->event.interrupt, event_log->event, sizeof(rr_interrupt)))
-		// 		goto out;
-		// 	break;
-
-		// case EVENT_TYPE_EXCEPTION:
-		// 	if (copy_to_user(user_event_log->event.exception, event_log->event.exception, sizeof(rr_exception)))
-		// 		goto out;
-		// 	break;
-
-		// case EVENT_TYPE_SYSCALL:
-		// 	if (copy_to_user(user_event_log->event.syscall, event_log->event.syscall, sizeof(rr_syscall)))
-		// 		goto out;
-		// 	break;
-
-		// default:
-		// 	break;
-		// }
-
 		r = 0;
 		break;
 	}
@@ -5796,6 +5773,44 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 
 		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
 			goto out;
+
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_MEM_LOG_NUMBER: {
+		int r;
+
+		r = -EFAULT;
+		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
+		event_info->event_number = rr_get_mem_log_list_length();
+
+		printk(KERN_INFO "mem log number = %d\n", event_info->event_number);
+
+		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
+			goto out;
+
+		r = 0;
+		break;	
+	}
+	case KVM_GET_RR_NEXT_MEM_LOG: {
+		int r;
+		struct rr_mem_access_log_t log = rr_get_next_mem_log();
+		struct rr_mem_access_log_t __user *user_mem_log = argp;
+
+		// printk(KERN_INFO "getting next mem log\n");		
+
+		r = -EFAULT;
+
+		if (copy_to_user(user_mem_log, &log, sizeof(rr_mem_access_log)))
+			goto out;
+
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_MEM_LOG_CLEAR: {
+		int r;
+		
+		rr_clear_mem_log();
 
 		r = 0;
 		break;

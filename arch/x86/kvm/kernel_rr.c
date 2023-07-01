@@ -16,6 +16,11 @@ int in_replay = 0;
 rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
 rr_event_log *rr_event_cur = NULL;
+int total_event_cnt = 0;
+
+rr_mem_access_log *rr_mem_log_head = NULL;
+rr_mem_access_log *rr_mem_log_tail = NULL;
+rr_mem_access_log *rr_mem_log_cur = NULL;
 
 const unsigned long syscall_addr = 0xffffffff81200000;
 const unsigned long pf_excep_addr = 0xffffffff8111e369;
@@ -25,6 +30,8 @@ const unsigned long copy_from_iter_addr = 0xffffffff810afc14;
 
 // const unsigned long copy_from_user_addr = 0xffffffff810b4f7d;
 const unsigned long copy_from_user_addr = 0xffffffff810b4fb8;
+
+const unsigned long copy_page_from_iter_addr = 0xffffffff810b0b16;
 
 const unsigned long strncpy_addr = 0xffffffff810cbd51;
 const unsigned long get_user_addr = 0xffffffff81118850;
@@ -85,12 +92,36 @@ __maybe_unused static void rr_record_regs(struct kvm_regs *dest_regs, struct kvm
 
 int rr_get_event_list_length(void)
 {
-    rr_event_log *event = rr_event_log_head;
+    // rr_event_log *event = rr_event_log_head;
+    // int len = 0;
+
+    // if (rr_event_log_head != NULL)
+    //     printk(KERN_INFO "rr log head: %d\n", rr_event_log_head->type);
+
+    // while (event != NULL) {
+    //     len++;
+    //     event = event->next;
+    // }
+
+    // printk(KERN_INFO "event len=%d\n", len);
+
+    // return len;
+    return total_event_cnt;
+}
+
+int rr_get_mem_log_list_length(void)
+{
+    rr_mem_access_log *log;
     int len = 0;
 
-    while (event != NULL) {
+    if (rr_mem_log_head == NULL) {
+        return 0;
+    }
+
+    log = rr_mem_log_head;
+    while (log != NULL) {
         len++;
-        event = event->next;
+        log = log->next;
     }
 
     return len;
@@ -120,6 +151,21 @@ rr_event_log rr_get_next_event(void)
     rr_event_cur = rr_event_cur->next;
 
     return *event;
+}
+
+rr_mem_access_log rr_get_next_mem_log(void)
+{
+    rr_mem_access_log *log = kmalloc(sizeof(struct rr_mem_access_log_t), GFP_KERNEL);
+
+    if (rr_mem_log_cur == NULL) {
+        return *log;
+    }
+
+    memcpy(log, rr_mem_log_cur, sizeof(struct rr_mem_access_log_t));
+
+    rr_mem_log_cur = rr_mem_log_cur->next;
+
+    return *log;
 }
 
 static int rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
@@ -208,10 +254,11 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
     event_log->type = EVENT_TYPE_SYSCALL;
     event_log->next = NULL;
 
-    // printk(KERN_INFO "RR Record: syscall=%lu", regs->rax);
-
-    if (rr_post_handle_event(vcpu, event_log))
+    if (rr_post_handle_event(vcpu, event_log)) {
         rr_insert_event_log(event_log);
+    }
+    
+    rr_mem_log_cur = rr_mem_log_head;
 }
 
 static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
@@ -280,6 +327,11 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         src_addr = regs->rsi - len;
         dest_addr = regs->rdi - len;
         do_read_mem = true;
+    } else if (*cfu_ip == copy_page_from_iter_addr) {
+        len = regs->rdx;
+        src_addr = regs->rsi - len;
+        dest_addr = regs->rdi - len;
+        do_read_mem = true;
     } else if (*cfu_ip == strncpy_addr) {
         len = regs->rax;
         src_addr = regs->r8;
@@ -298,20 +350,20 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         cfu_log->dest_addr = dest_addr;
         cfu_log->len = len;
 
-        ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
+        emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
                                             cfu_log->dest_addr, cfu_log->data, cfu_log->len,
                                             &emulate_ctxt->exception);
 
-        printk(KERN_INFO "CFU: read from addr=0x%lx, len=%d, ret=%d, rip=0x%lx\n",
-               cfu_log->dest_addr, len, ret, regs->rip);
+        // printk(KERN_INFO "CFU: read from addr=0x%lx, len=%d, ret=%d, rip=0x%lx\n",
+        //        cfu_log->dest_addr, len, ret, regs->rip);
 
-        if (ret != X86EMUL_PROPAGATE_FAULT) {
-            printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
-                   cfu_log->dest_addr, ret);
-        }
-        for (j=0; j < 8; j++) {
-            printk(KERN_INFO "CFU data: %u\n", cfu_log->data[0]);
-        }
+        // if (ret != X86EMUL_PROPAGATE_FAULT) {
+        //     printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+        //            cfu_log->dest_addr, ret);
+        // }
+        // for (j=0; j < 8; j++) {
+        //     printk(KERN_INFO "CFU data: %u\n", cfu_log->data[0]);
+        // }
     }
 
     event_log->event.cfu = *cfu_log;
@@ -384,6 +436,62 @@ static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
     return;
 }
 
+static void report_record_stat(void)
+{
+    rr_event_log *event = rr_event_log_head;
+    int event_int_num = 0;
+    int event_syscall_num = 0;
+    int event_pf_excep = 0;
+    int event_io_in = 0;
+    int event_cfu = 0;
+    int event_random = 0;
+
+    printk(KERN_WARNING "=== Report recorded events ===\n");
+    while (event != NULL) {
+        if (event->type == EVENT_TYPE_INTERRUPT) {
+            event_int_num++;
+            // printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
+        }
+
+        if (event->type == EVENT_TYPE_SYSCALL) {
+            event_syscall_num++;
+            printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
+        }
+
+        if (event->type == EVENT_TYPE_EXCEPTION) {
+            // printk(KERN_WARNING "except vector=%d error code=%d, addr=%x",
+            //        event->event.exception.exception_index,
+            //        event->event.exception.error_code,
+            //        event->event.exception.cr2);
+            event_pf_excep++;
+        }
+
+        if (event->type == EVENT_TYPE_IO_IN) {
+            event_io_in++;
+            // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
+        }
+
+        if (event->type == EVENT_TYPE_CFU) {
+            event_cfu++;
+            printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
+        }
+
+        if (event->type == EVENT_TYPE_RANDOM) {
+            event_random++;
+            printk(KERN_INFO "RR Record: Random rip=0x%lx, buf=0x%lx, len=%lu, inst_cnt=%lu",
+                    event->rip, event->event.rand.buf, event->event.rand.len, event->inst_cnt);
+        }
+
+        total_event_cnt++;
+
+        event = event->next;
+
+    }
+
+    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d\n",
+            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu);
+}
+
 void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 {
     if (record == in_record) {
@@ -394,64 +502,18 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
     in_record = record;
 
     if (!in_record) {
-        rr_event_log *event = rr_event_log_head;
-        int event_int_num = 0;
-        int event_syscall_num = 0;
-        int event_pf_excep = 0;
-        int event_io_in = 0;
-        int event_cfu = 0;
-        int event_random = 0;
-
-        printk(KERN_WARNING "=== Report recorded events ===\n");
-        while (event != NULL) {
-            if (event->type == EVENT_TYPE_INTERRUPT) {
-                event_int_num++;
-                // printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
-            }
-
-            if (event->type == EVENT_TYPE_SYSCALL) {
-                event_syscall_num++;
-                printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
-            }
-
-            if (event->type == EVENT_TYPE_EXCEPTION) {
-                // printk(KERN_WARNING "except vector=%d error code=%d, addr=%x",
-                //        event->event.exception.exception_index,
-                //        event->event.exception.error_code,
-                //        event->event.exception.cr2);
-                event_pf_excep++;
-            }
-
-            if (event->type == EVENT_TYPE_IO_IN) {
-                event_io_in++;
-                // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
-            }
-
-            if (event->type == EVENT_TYPE_CFU) {
-                event_cfu++;
-                printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
-            }
-
-            if (event->type == EVENT_TYPE_RANDOM) {
-                event_random++;
-                printk(KERN_INFO "RR Record: Random rip=0x%lx, buf=0x%lx, len=%lu, inst_cnt=%lu",
-                       event->rip, event->event.rand.buf, event->event.rand.len, event->inst_cnt);
-            }
-
-            event = event->next;
-
-        }
-
-        printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d\n",
-               event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu);
+        report_record_stat();
 
         kvm_make_request(KVM_REQ_END_RECORD, vcpu);
 
         rr_event_cur = rr_event_log_head;
+        rr_mem_log_cur = rr_mem_log_head;
 
         vcpu->int_injected = 0;
 
     } else {
+        total_event_cnt = 0;
+
         if (rr_event_log_head != NULL) {
             rr_event_log *pre_event = rr_event_log_head;
             rr_event_log *event;
@@ -462,14 +524,40 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
                 pre_event = event;
             }
 
-            rr_event_log_head = NULL;
-            rr_event_log_tail = NULL;
 
-            printk(KERN_INFO "RR initialized\n");
         }
+
+        rr_event_log_head = NULL;
+        rr_event_log_tail = NULL;
+
+        printk(KERN_INFO "RR initialized\n");
 
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
         vcpu->int_injected = 0;
+    }
+
+    rr_clear_mem_log();
+
+}
+
+void rr_clear_mem_log(void)
+{
+    if (rr_mem_log_head != NULL) {
+        // rr_mem_access_log *pre_event = rr_mem_log_head;
+        // rr_mem_access_log *event;
+
+        // printk("Freeing mem log\n");
+
+        // while (pre_event != NULL) {
+        //     event = pre_event->next;
+        //     kfree(pre_event);
+        //     pre_event = event;
+        //     printk("Free mem log: %p\n", pre_event);
+        // }
+
+        rr_mem_log_head = NULL;
+        rr_mem_log_tail = NULL;
+        rr_mem_log_cur = NULL;
     }
 }
 
@@ -526,6 +614,34 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     }
 }
 
+void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
+{
+    unsigned long rip;
+    rr_mem_access_log *log;
+    
+    rip = kvm_get_linear_rip(vcpu);
+    log = kmalloc(sizeof(rr_mem_access_log), GFP_KERNEL);
+
+    log->gpa = gpa;
+    log->rip = rip;
+
+    if (rip == 0xffffffff81019ec9) {
+        dump_stack();
+    }
+
+    // printk(KERN_INFO "RR record mem access: %lx\n", log->gpa);
+
+    log->next = NULL;
+
+    if (rr_mem_log_tail == NULL) {
+        rr_mem_log_head = log;
+        rr_mem_log_tail = log;
+    } else {
+        rr_mem_log_tail->next = log;
+        rr_mem_log_tail = rr_mem_log_tail->next;
+    }
+}
+
 int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
 {
     unsigned long addr;
@@ -550,6 +666,7 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
         case strncpy_addr:
         case get_user_addr:
         case strnlen_user_addr:
+        case copy_page_from_iter_addr:
             rr_record_event(vcpu, EVENT_TYPE_CFU, &addr);
             break;
         case random_bytes_addr:
