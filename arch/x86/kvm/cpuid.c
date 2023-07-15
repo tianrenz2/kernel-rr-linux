@@ -682,6 +682,9 @@ void kvm_set_cpu_caps(void)
 		F(PMM) | F(PMM_EN)
 	);
 
+	kvm_cpu_cap_clear(X86_FEATURE_RDTSCP);
+	printk(KERN_INFO "Cleared rdtscp\n");
+
 	/*
 	 * Hide RDTSCP and RDPID if either feature is reported as supported but
 	 * probing MSR_TSC_AUX failed.  This is purely a sanity check and
@@ -1038,9 +1041,10 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 		break;
 	}
 	case KVM_CPUID_FEATURES:
-		entry->eax = (1 << KVM_FEATURE_CLOCKSOURCE) |
+		entry->eax = 
+				//  (1 << KVM_FEATURE_CLOCKSOURCE) |
 			     (1 << KVM_FEATURE_NOP_IO_DELAY) |
-			     (1 << KVM_FEATURE_CLOCKSOURCE2) |
+			    //  (1 << KVM_FEATURE_CLOCKSOURCE2) |
 			     (1 << KVM_FEATURE_ASYNC_PF) |
 			     (1 << KVM_FEATURE_PV_EOI) |
 			     (1 << KVM_FEATURE_CLOCKSOURCE_STABLE_BIT) |

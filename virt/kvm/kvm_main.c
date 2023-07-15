@@ -3196,7 +3196,8 @@ void mark_page_dirty_in_slot(struct kvm *kvm,
 				// 	   gpa, memslot->base_gfn << PAGE_SHIFT);				
 			}
 
-			rr_trace_memory_write(vcpu, gpa);
+			if (rr_in_record())
+				rr_trace_memory_write(vcpu, gpa);
 		}
 
 		if (kvm->dirty_ring_size)

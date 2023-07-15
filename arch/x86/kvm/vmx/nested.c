@@ -114,8 +114,9 @@ static void init_vmcs_shadow_fields(void)
 		 */
 		switch (field) {
 		case GUEST_PML_INDEX:
-			if (!cpu_has_vmx_pml())
+			if (!cpu_has_vmx_pml()) {
 				continue;
+			}
 			break;
 		case VMX_PREEMPTION_TIMER_VALUE:
 			if (!cpu_has_vmx_preemption_timer())

@@ -67,6 +67,7 @@
 #include "vmcs12.h"
 #include "vmx.h"
 #include "x86.h"
+#include "kernel_rr.h"
 
 MODULE_AUTHOR("Qumranet");
 MODULE_LICENSE("GPL");
@@ -2441,7 +2442,8 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	      CPU_BASED_MWAIT_EXITING |
 	      CPU_BASED_MONITOR_EXITING |
 	      CPU_BASED_INVLPG_EXITING |
-	      CPU_BASED_RDPMC_EXITING;
+	      CPU_BASED_RDPMC_EXITING |
+		  CPU_BASED_RDTSC_EXITING;
 
 	opt = CPU_BASED_TPR_SHADOW |
 	      CPU_BASED_USE_MSR_BITMAPS |
@@ -5694,6 +5696,26 @@ static int handle_bus_lock_vmexit(struct kvm_vcpu *vcpu)
 	return 1;
 }
 
+static int handle_rdtsc(struct kvm_vcpu *vcpu) 
+{
+	u64 tsc = 0;
+	struct x86_emulate_ctxt *emulate_ctxt;
+
+	emulate_ctxt = vcpu->arch.emulate_ctxt;
+
+	emulate_ctxt->ops->get_msr(emulate_ctxt, MSR_IA32_TSC, &tsc);
+
+	// printk(KERN_INFO "rdtsc emulated: %lu\n", tsc);
+
+	kvm_rax_write(vcpu, (u32)tsc);
+	kvm_rdx_write(vcpu, tsc >> 32);
+
+	if (rr_in_record())
+		rr_record_event(vcpu, EVENT_TYPE_RDTSC, &tsc);
+
+	return kvm_skip_emulated_instruction(vcpu);
+}
+
 /*
  * The exit handlers return 1 if the exit was handled fully and guest execution
  * may resume.  Otherwise they set the kvm_run parameter to indicate what needs
@@ -5751,6 +5773,7 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_PREEMPTION_TIMER]	      = handle_preemption_timer,
 	[EXIT_REASON_ENCLS]		      = handle_encls,
 	[EXIT_REASON_BUS_LOCK]                = handle_bus_lock_vmexit,
+	[EXIT_REASON_RDTSC] 		= handle_rdtsc,
 };
 
 static const int kvm_vmx_max_exit_handlers =
@@ -8031,8 +8054,12 @@ static __init int hardware_setup(void)
 	if (!enable_ept || !enable_ept_ad_bits || !cpu_has_vmx_pml())
 		enable_pml = 0;
 
-	if (!enable_pml)
+	if (!enable_pml) {
 		vmx_x86_ops.cpu_dirty_log_size = 0;
+		printk(KERN_INFO "not enabled pml\n");
+	} else {
+		printk(KERN_INFO "enabled pml\n");
+	}
 
 	if (!cpu_has_vmx_preemption_timer())
 		enable_preemption_timer = false;

@@ -9,6 +9,8 @@
 #define EVENT_TYPE_IO_IN     3
 #define EVENT_TYPE_CFU       4
 #define EVENT_TYPE_RANDOM    5
+#define EVENT_TYPE_RDTSC     6
+#define EVENT_TYPE_DMA_DONE  7
 
 enum REGS {
     ZERO,
@@ -63,6 +65,7 @@ typedef struct {
 
 typedef struct {
     struct kvm_regs regs;
+    unsigned long kernel_gsbase, msr_gsbase;
 } rr_syscall;
 
 typedef struct {

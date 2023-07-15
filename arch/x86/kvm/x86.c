@@ -2997,6 +2997,8 @@ static void kvm_setup_pvclock_page(struct kvm_vcpu *v,
 	struct kvm_vcpu_arch *vcpu = &v->arch;
 	struct pvclock_vcpu_time_info guest_hv_clock;
 
+	// printk(KERN_INFO "kvm_setup_pvclock_page\n");
+
 	if (unlikely(kvm_read_guest_offset_cached(v->kvm, cache,
 		&guest_hv_clock, offset, sizeof(guest_hv_clock))))
 		return;
@@ -5811,6 +5813,15 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		int r;
 		
 		rr_clear_mem_log();
+
+		r = 0;
+		break;
+	}
+
+	case KVM_RR_MARK_DMA_DONE: {
+		int r;
+		
+		rr_record_event(vcpu, EVENT_TYPE_DMA_DONE, NULL);
 
 		r = 0;
 		break;
@@ -9545,7 +9556,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			kvm_queue_interrupt(vcpu, kvm_cpu_get_interrupt(vcpu), false);
 			static_call(kvm_x86_set_irq)(vcpu);
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
-
+			
 			if (rr_in_record()) {
 				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, vcpu->arch.interrupt.nr, 1));
 				vcpu->int_injected++;

@@ -3088,7 +3088,7 @@ fast_pf_fix_direct_spte(struct kvm_vcpu *vcpu, struct kvm_page_fault *fault,
 	if (cmpxchg64(sptep, old_spte, new_spte) != old_spte)
 		return false;
 
-	printk(KERN_INFO "fast_pf_fix_direct_spte\n");
+	// printk(KERN_INFO "fast_pf_fix_direct_spte\n");
 	if (is_writable_pte(new_spte) && !is_writable_pte(old_spte))
 		mark_page_dirty_in_slot(vcpu->kvm, fault->slot, fault->gfn);
 

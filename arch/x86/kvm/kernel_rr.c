@@ -22,21 +22,33 @@ rr_mem_access_log *rr_mem_log_head = NULL;
 rr_mem_access_log *rr_mem_log_tail = NULL;
 rr_mem_access_log *rr_mem_log_cur = NULL;
 
-const unsigned long syscall_addr = 0xffffffff81200000;
-const unsigned long pf_excep_addr = 0xffffffff8111e369;
+// const unsigned long syscall_addr = 0xffffffff81200000;
+// const unsigned long pf_excep_addr = 0xffffffff8111e369;
 
-// const unsigned long copy_from_iter_addr = 0xffffffff810afbf1;
-const unsigned long copy_from_iter_addr = 0xffffffff810afc14;
+// // const unsigned long copy_from_iter_addr = 0xffffffff810afbf1;
+// const unsigned long copy_from_iter_addr = 0xffffffff810afc14;
 
-// const unsigned long copy_from_user_addr = 0xffffffff810b4f7d;
-const unsigned long copy_from_user_addr = 0xffffffff810b4fb8;
+// // const unsigned long copy_from_user_addr = 0xffffffff810b4f7d;
+// const unsigned long copy_from_user_addr = 0xffffffff810b4fb8;
 
-const unsigned long copy_page_from_iter_addr = 0xffffffff810b0b16;
+// const unsigned long copy_page_from_iter_addr = 0xffffffff810b0b16;
 
-const unsigned long strncpy_addr = 0xffffffff810cbd51;
-const unsigned long get_user_addr = 0xffffffff81118850;
-const unsigned long strnlen_user_addr = 0xffffffff810cbe4a;
-const unsigned long random_bytes_addr = 0xffffffff810e1e25;
+// const unsigned long strncpy_addr = 0xffffffff810cbd51;
+// const unsigned long get_user_addr = 0xffffffff81118850;
+// const unsigned long strnlen_user_addr = 0xffffffff810cbe4a;
+// const unsigned long random_bytes_addr = 0xffffffff810e1e25;
+
+const unsigned long syscall_addr = 0xffffffff81c00000;
+const unsigned long pf_excep_addr = 0xffffffff81a2c020;
+const unsigned long copy_from_iter_addr = 0xffffffff8166e139;
+const unsigned long copy_from_user_addr = 0xffffffff816757f7; 
+const unsigned long copy_page_from_iter_addr = 0xffffffff8166fdd3;
+const unsigned long strncpy_addr = 0xffffffff816e96ac; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
+const unsigned long get_user_addr = 0xffffffff819c4820;
+const unsigned long strnlen_user_addr = 0xffffffff816e97b1;
+const unsigned long random_bytes_addr = 0xffffffff81812040;
+const unsigned long last_removed_addr = 0;
+
 
 // target_ulong cfu_addr1 = 0xffffffff811183e0; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
 // target_ulong cfu_addr2 = 0xffffffff810afc0d; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
@@ -242,17 +254,32 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
     struct kvm_regs *regs;
     rr_event_log *event_log;
     rr_syscall *syscall_log;
+    u64 gsbase, kernel_gsbase;
+    // struct kvm_segment *seg;
 
     regs = kmalloc(sizeof(struct kvm_regs), GFP_KERNEL);
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
     syscall_log = kmalloc(sizeof(rr_syscall), GFP_KERNEL);
+    // seg = kmalloc(sizeof(struct kvm_segment), GFP_KERNEL);
 
     rr_get_regs(vcpu, regs);
+
+
+    // kvm_get_segment(vcpu, seg, VCPU_SREG_GS);
+
+    kvm_get_msr(vcpu, MSR_GS_BASE, &gsbase);
+    kvm_get_msr(vcpu, MSR_KERNEL_GS_BASE, &kernel_gsbase);
+
     syscall_log->regs = *regs;
+    syscall_log->msr_gsbase = gsbase;
+    syscall_log->kernel_gsbase = kernel_gsbase;
 
     event_log->event.syscall = *syscall_log;
     event_log->type = EVENT_TYPE_SYSCALL;
     event_log->next = NULL;
+
+    printk(KERN_INFO "sycall: gsbase=0x%lx, gsbase_kernel=0x%lx\n",
+           syscall_log->msr_gsbase , syscall_log->kernel_gsbase);
 
     if (rr_post_handle_event(vcpu, event_log)) {
         rr_insert_event_log(event_log);
@@ -281,6 +308,8 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     event_log->next = NULL;
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+
+    // printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
 
     // if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
     //     return;
@@ -436,6 +465,44 @@ static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
     return;
 }
 
+static void handle_event_rdtsc(struct kvm_vcpu *vcpu, void *opaque)
+{
+    rr_event_log *event_log;
+    unsigned long *tsc_val = (unsigned long *)opaque;
+    rr_io_input *io_input;
+    
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    io_input = kmalloc(sizeof(rr_io_input), GFP_KERNEL);
+
+    io_input->value = *tsc_val;
+
+    event_log->type = EVENT_TYPE_RDTSC;
+    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+    event_log->event.io_input = *io_input;
+    event_log->next = NULL;
+
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
+
+    return;
+}
+
+static void handle_event_dma_done(struct kvm_vcpu *vcpu, void *opaque)
+{
+    rr_event_log *event_log;
+
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+
+    event_log->type = EVENT_TYPE_DMA_DONE;
+    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+    event_log->next = NULL;
+
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
+
+    return;
+}
+
 static void report_record_stat(void)
 {
     rr_event_log *event = rr_event_log_head;
@@ -445,6 +512,7 @@ static void report_record_stat(void)
     int event_io_in = 0;
     int event_cfu = 0;
     int event_random = 0;
+    int event_dma_done = 0;
 
     printk(KERN_WARNING "=== Report recorded events ===\n");
     while (event != NULL) {
@@ -482,14 +550,19 @@ static void report_record_stat(void)
                     event->rip, event->event.rand.buf, event->event.rand.len, event->inst_cnt);
         }
 
+        if (event->type == EVENT_TYPE_DMA_DONE) {
+            event_dma_done++;
+            printk(KERN_INFO "RR Record: DMA Done");
+        }
+
         total_event_cnt++;
 
         event = event->next;
 
     }
 
-    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d\n",
-            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu);
+    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d\n",
+            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done);
 }
 
 void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
@@ -575,6 +648,7 @@ int rr_in_record(void)
 {
     return in_record;
 }
+EXPORT_SYMBOL_GPL(rr_in_record);
 
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode)
 {
@@ -609,10 +683,17 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     case EVENT_TYPE_RANDOM:
         handle_event_random_generator(vcpu, opaque);
         break;
+    case EVENT_TYPE_RDTSC:
+        handle_event_rdtsc(vcpu, opaque);
+        break;
+    case EVENT_TYPE_DMA_DONE:
+        handle_event_dma_done(vcpu, opaque);
+        break;
     default:
         break;
     }
 }
+EXPORT_SYMBOL_GPL(rr_record_event);
 
 void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
 {
@@ -624,10 +705,6 @@ void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
 
     log->gpa = gpa;
     log->rip = rip;
-
-    if (rip == 0xffffffff81019ec9) {
-        dump_stack();
-    }
 
     // printk(KERN_INFO "RR record mem access: %lx\n", log->gpa);
 

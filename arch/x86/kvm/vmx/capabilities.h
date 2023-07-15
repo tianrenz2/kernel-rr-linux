@@ -242,7 +242,8 @@ static inline bool cpu_has_vmx_rdseed(void)
 
 static inline bool cpu_has_vmx_pml(void)
 {
-	return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_PML;
+	// return vmcs_config.cpu_based_2nd_exec_ctrl & SECONDARY_EXEC_ENABLE_PML;
+	return false;
 }
 
 static inline bool cpu_has_vmx_xsaves(void)

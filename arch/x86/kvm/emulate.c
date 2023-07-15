@@ -3535,6 +3535,8 @@ static int em_rdtsc(struct x86_emulate_ctxt *ctxt)
 {
 	u64 tsc = 0;
 
+	printk(KERN_INFO "rdtsc emulated\n");
+
 	ctxt->ops->get_msr(ctxt, MSR_IA32_TSC, &tsc);
 	*reg_write(ctxt, VCPU_REGS_RAX) = (u32)tsc;
 	*reg_write(ctxt, VCPU_REGS_RDX) = tsc >> 32;
