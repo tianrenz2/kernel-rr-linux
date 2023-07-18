@@ -22,31 +22,29 @@ rr_mem_access_log *rr_mem_log_head = NULL;
 rr_mem_access_log *rr_mem_log_tail = NULL;
 rr_mem_access_log *rr_mem_log_cur = NULL;
 
+rr_random *random_cur = NULL;
+
 // const unsigned long syscall_addr = 0xffffffff81200000;
 // const unsigned long pf_excep_addr = 0xffffffff8111e369;
-
-// // const unsigned long copy_from_iter_addr = 0xffffffff810afbf1;
 // const unsigned long copy_from_iter_addr = 0xffffffff810afc14;
-
-// // const unsigned long copy_from_user_addr = 0xffffffff810b4f7d;
 // const unsigned long copy_from_user_addr = 0xffffffff810b4fb8;
-
 // const unsigned long copy_page_from_iter_addr = 0xffffffff810b0b16;
-
 // const unsigned long strncpy_addr = 0xffffffff810cbd51;
 // const unsigned long get_user_addr = 0xffffffff81118850;
 // const unsigned long strnlen_user_addr = 0xffffffff810cbe4a;
 // const unsigned long random_bytes_addr = 0xffffffff810e1e25;
 
-const unsigned long syscall_addr = 0xffffffff81c00000;
-const unsigned long pf_excep_addr = 0xffffffff81a2c020;
-const unsigned long copy_from_iter_addr = 0xffffffff8166e139;
-const unsigned long copy_from_user_addr = 0xffffffff816757f7; 
-const unsigned long copy_page_from_iter_addr = 0xffffffff8166fdd3;
-const unsigned long strncpy_addr = 0xffffffff816e96ac; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
-const unsigned long get_user_addr = 0xffffffff819c4820;
-const unsigned long strnlen_user_addr = 0xffffffff816e97b1;
-const unsigned long random_bytes_addr = 0xffffffff81812040;
+const unsigned long syscall_addr = 0xffffffff81a00000;
+const unsigned long pf_excep_addr = 0xffffffff819528f0;
+const unsigned long copy_from_iter_addr = 0xffffffff816452a9;
+const unsigned long copy_from_user_addr = 0xffffffff8164c967; 
+const unsigned long copy_page_from_iter_addr = 0xffffffff8100000;
+const unsigned long strncpy_addr = 0xffffffff816c064c; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
+const unsigned long get_user_addr = 0xffffffff818fa750;
+const unsigned long strnlen_user_addr = 0xffffffff816c0751;
+
+const unsigned long random_bytes_addr_start = 0xffffffff81770030;
+const unsigned long random_bytes_addr_end = 0xffffffff817700a3;
 const unsigned long last_removed_addr = 0;
 
 
@@ -232,7 +230,7 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
         case PF_VECTOR:
             except->error_code = get_rsi(vcpu);
             except->cr2 = vcpu->arch.cr2;
-            printk(KERN_INFO "error code: %d\n", except->error_code);
+            // printk(KERN_INFO "error code: %d\n", except->error_code);
             break;
         default:
             return;
@@ -278,8 +276,8 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
     event_log->type = EVENT_TYPE_SYSCALL;
     event_log->next = NULL;
 
-    printk(KERN_INFO "sycall: gsbase=0x%lx, gsbase_kernel=0x%lx\n",
-           syscall_log->msr_gsbase , syscall_log->kernel_gsbase);
+    // printk(KERN_INFO "sycall: gsbase=0x%lx, gsbase_kernel=0x%lx\n",
+    //        syscall_log->msr_gsbase , syscall_log->kernel_gsbase);
 
     if (rr_post_handle_event(vcpu, event_log)) {
         rr_insert_event_log(event_log);
@@ -347,27 +345,56 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     emulate_ctxt = vcpu->arch.emulate_ctxt;
 
     if (*cfu_ip == copy_from_iter_addr) {
-        len = regs->r14;
+        // === Kernel Version 1 ===
+        // len = regs->r14;
+        // dest_addr = regs->rdi - len;
+        // src_addr = regs->rsi - len;
+        // === End ===
+
+        // === Kernel Version 2 ===
+        len = regs->rdx;
         dest_addr = regs->rdi - len;
         src_addr = regs->rsi - len;
+        // === End ===
+
         do_read_mem = true;
     } else if (*cfu_ip == copy_from_user_addr) {
-        len = regs->rbx;
+        // === Kernel Version 1 ===
+        // len = regs->rbx;
+        // src_addr = regs->rsi - len;
+        // dest_addr = regs->rdi - len;
+        // === End ===
+
+        // === Kernel Version 1 ===
+        len = regs->rbp;
         src_addr = regs->rsi - len;
         dest_addr = regs->rdi - len;
+        // === End ===
+
         do_read_mem = true;
     } else if (*cfu_ip == copy_page_from_iter_addr) {
+        printk(KERN_INFO "copy_page_from_iter_addr\n");
         len = regs->rdx;
         src_addr = regs->rsi - len;
         dest_addr = regs->rdi - len;
         do_read_mem = true;
     } else if (*cfu_ip == strncpy_addr) {
+        // === Kernel version 1 ===
+        // len = regs->rax;
+        // src_addr = regs->r8;
+        // dest_addr = regs->rdi;
+        // === End ===
+
+        // === Kernel version 2 ===
         len = regs->rax;
-        src_addr = regs->r8;
-        dest_addr = regs->rdi;
+        src_addr = regs->rbp;
+        dest_addr = regs->r12;
+        // === End ===
         do_read_mem = true;
     } else if (*cfu_ip == get_user_addr) {
-       cfu_log->rdx = regs->rdx; 
+       cfu_log->rdx = regs->rdx;
+       cfu_log->src_addr = 0;
+       cfu_log->dest_addr = 0;
        printk(KERN_INFO "get user log: %lx\n", cfu_log->rdx);
     } else if (*cfu_ip == strnlen_user_addr) {
         cfu_log->len = regs->rax;
@@ -411,34 +438,46 @@ static void handle_event_random_generator(struct kvm_vcpu *vcpu, void *opaque)
     rr_event_log *event_log;
     rr_random *rand_log;
     struct x86_emulate_ctxt *emulate_ctxt;
-    int ret;
+    int ret = 0;
+    unsigned long rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    rand_log = kmalloc(sizeof(rr_random), GFP_KERNEL);
-	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+    if (rip == random_bytes_addr_start) {
+        regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+        rand_log = kmalloc(sizeof(rr_random), GFP_KERNEL);
 
-    event_log->type = EVENT_TYPE_RANDOM;
+        rr_get_regs(vcpu, regs);
 
-    rr_get_regs(vcpu, regs);
+        rand_log->len = regs->rsi;
+        rand_log->buf = regs->rdi;
 
-    rand_log->buf = regs->r15;
-    rand_log->len = regs->r14 - regs->r15;
-    
-    emulate_ctxt = vcpu->arch.emulate_ctxt;
+        random_cur = rand_log;
+    } else {
+        rand_log = random_cur;
+        
+        printk(KERN_INFO "Random read from 0x%lx, len=%d\n", rand_log->buf, rand_log->len);
 
-    ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
-                                           rand_log->buf, rand_log->data, rand_log->len,
-                                           &emulate_ctxt->exception);
-    if (ret != X86EMUL_PROPAGATE_FAULT) {
-        printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
-               rand_log->buf, ret);
+        event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+        
+        event_log->type = EVENT_TYPE_RANDOM;
+
+        emulate_ctxt = vcpu->arch.emulate_ctxt;
+
+        ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
+                                            rand_log->buf, rand_log->data, rand_log->len,
+                                            &emulate_ctxt->exception);
+        if (ret != X86EMUL_PROPAGATE_FAULT) {
+            printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+                rand_log->buf, ret);
+        }
+
+        event_log->event.rand = *rand_log;
+        event_log->rip = rip;
+
+        random_cur = NULL;
+
+        if (rr_post_handle_event(vcpu, event_log))
+            rr_insert_event_log(event_log);
     }
-
-    event_log->event.rand = *rand_log;
-    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
-
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
 }
 
 static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
@@ -746,7 +785,8 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
         case copy_page_from_iter_addr:
             rr_record_event(vcpu, EVENT_TYPE_CFU, &addr);
             break;
-        case random_bytes_addr:
+        case random_bytes_addr_start:
+        case random_bytes_addr_end:
             rr_record_event(vcpu, EVENT_TYPE_RANDOM, NULL);
         default:
             break;
