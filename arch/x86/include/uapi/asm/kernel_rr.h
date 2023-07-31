@@ -65,7 +65,7 @@ typedef struct {
 
 typedef struct {
     struct kvm_regs regs;
-    unsigned long kernel_gsbase, msr_gsbase;
+    unsigned long kernel_gsbase, msr_gsbase, cr3;
 } rr_syscall;
 
 typedef struct {
@@ -92,6 +92,7 @@ typedef struct rr_event_log_t{
 typedef struct rr_mem_access_log_t {
     unsigned long gpa;
     unsigned long rip;
+    unsigned long inst_cnt;
     struct rr_mem_access_log_t *next;
 } rr_mem_access_log;
 

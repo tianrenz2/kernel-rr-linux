@@ -262,6 +262,7 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 
     rr_get_regs(vcpu, regs);
 
+    syscall_log->cr3 = kvm_read_cr3(vcpu);
 
     // kvm_get_segment(vcpu, seg, VCPU_SREG_GS);
 
@@ -307,7 +308,7 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    // printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
+    printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
 
     // if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
     //     return;
@@ -315,6 +316,8 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 
     if (rr_post_handle_event(vcpu, event_log))
         rr_insert_event_log(event_log);
+    else
+        printk(KERN_INFO "Failed to append int %d\n", event_log->event.interrupt.lapic.vector);
 }
 
 static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
@@ -744,6 +747,7 @@ void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
 
     log->gpa = gpa;
     log->rip = rip;
+    log->inst_cnt = kvm_get_inst_cnt(vcpu) - vcpu->rr_start_point;
 
     // printk(KERN_INFO "RR record mem access: %lx\n", log->gpa);
 

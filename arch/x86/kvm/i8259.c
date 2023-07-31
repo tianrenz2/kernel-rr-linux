@@ -30,6 +30,7 @@
 #include <linux/slab.h>
 #include <linux/bitops.h>
 #include "irq.h"
+#include "kernel_rr.h"
 
 #include <linux/kvm_host.h>
 #include "trace.h"
@@ -188,6 +189,9 @@ int kvm_pic_set_irq(struct kvm_pic *s, int irq, int irq_source_id, int level)
 	int ret, irq_level;
 
 	BUG_ON(irq < 0 || irq >= PIC_NUM_PINS);
+
+	// if (rr_in_record())
+	// 	printk(KERN_INFO "set irq: %d, level: %d\n", irq, level);
 
 	pic_lock(s);
 	irq_level = __kvm_irq_line_state(&s->irq_states[irq],

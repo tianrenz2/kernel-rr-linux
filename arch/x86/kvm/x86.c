@@ -9553,12 +9553,14 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 		if (r < 0)
 			goto out;
 		if (r) {
-			kvm_queue_interrupt(vcpu, kvm_cpu_get_interrupt(vcpu), false);
+			int intr = kvm_cpu_get_interrupt(vcpu);
+			kvm_queue_interrupt(vcpu, intr, false);
 			static_call(kvm_x86_set_irq)(vcpu);
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
 			
 			if (rr_in_record()) {
-				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, vcpu->arch.interrupt.nr, 1));
+				printk(KERN_INFO "injecting interrupt %d\n", intr);
+				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, intr, 1));
 				vcpu->int_injected++;
 			}
 		}

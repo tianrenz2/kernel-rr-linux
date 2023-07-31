@@ -5710,7 +5710,7 @@ static int handle_rdtsc(struct kvm_vcpu *vcpu)
 	kvm_rax_write(vcpu, (u32)tsc);
 	kvm_rdx_write(vcpu, tsc >> 32);
 
-	if (rr_in_record())
+	if (rr_in_record() && vmx_get_cpl(vcpu) == 0)
 		rr_record_event(vcpu, EVENT_TYPE_RDTSC, &tsc);
 
 	return kvm_skip_emulated_instruction(vcpu);
