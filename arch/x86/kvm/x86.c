@@ -1231,12 +1231,16 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 #ifdef CONFIG_X86_64
 	bool pcid_enabled = kvm_read_cr4_bits(vcpu, X86_CR4_PCIDE);
 
+	printk("set cr3: 0x%lx\n", cr3);
+
 	if (pcid_enabled) {
 		skip_tlb_flush = cr3 & X86_CR3_PCID_NOFLUSH;
 		cr3 &= ~X86_CR3_PCID_NOFLUSH;
 		pcid = cr3 & X86_CR3_PCID_MASK;
 	}
 #endif
+
+	printk("cr3 after processed: 0x%lx\n", cr3);
 
 	/* PDPTRs are always reloaded for PAE paging. */
 	if (cr3 == kvm_read_cr3(vcpu) && !is_pae_paging(vcpu))
@@ -9559,7 +9563,8 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
 			
 			if (rr_in_record()) {
-				printk(KERN_INFO "injecting interrupt %d\n", intr);
+				if (intr == 33)
+					printk(KERN_INFO "injecting interrupt %d\n", intr);
 				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, intr, 1));
 				vcpu->int_injected++;
 			}

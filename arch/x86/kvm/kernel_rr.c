@@ -308,7 +308,7 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
+    // printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
 
     // if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
     //     return;
@@ -456,6 +456,10 @@ static void handle_event_random_generator(struct kvm_vcpu *vcpu, void *opaque)
         random_cur = rand_log;
     } else {
         rand_log = random_cur;
+
+        if (random_cur == NULL) {
+            return;
+        }
         
         printk(KERN_INFO "Random read from 0x%lx, len=%d\n", rand_log->buf, rand_log->len);
 
@@ -473,7 +477,7 @@ static void handle_event_random_generator(struct kvm_vcpu *vcpu, void *opaque)
                 rand_log->buf, ret);
         }
 
-        event_log->event.rand = *rand_log;
+        memcpy(&event_log->event.rand, rand_log, sizeof(rr_random));
         event_log->rip = rip;
 
         random_cur = NULL;
@@ -503,6 +507,8 @@ static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
 
     if (rr_post_handle_event(vcpu, event_log))
         rr_insert_event_log(event_log);
+
+    // printk(KERN_WARNING "IO event\n");
 
     return;
 }
@@ -541,6 +547,8 @@ static void handle_event_dma_done(struct kvm_vcpu *vcpu, void *opaque)
 
     if (rr_post_handle_event(vcpu, event_log))
         rr_insert_event_log(event_log);
+    
+    // printk(KERN_WARNING "Inserted DMA Done\n");
 
     return;
 }
@@ -560,7 +568,8 @@ static void report_record_stat(void)
     while (event != NULL) {
         if (event->type == EVENT_TYPE_INTERRUPT) {
             event_int_num++;
-            // printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
+            if (event->event.interrupt.lapic.vector == 33)
+                printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
         }
 
         if (event->type == EVENT_TYPE_SYSCALL) {
@@ -578,7 +587,7 @@ static void report_record_stat(void)
 
         if (event->type == EVENT_TYPE_IO_IN) {
             event_io_in++;
-            // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
+            printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
         }
 
         if (event->type == EVENT_TYPE_CFU) {
