@@ -1,4 +1,7 @@
-#include <linux/kvm_host.h>
+#ifndef __KVM_X86_KERNEL_RR_H
+#define __KVM_X86_KERNEL_RR_H
+
+// #include <linux/kvm_host.h>
 #include <asm/kernel_rr.h>
 
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
@@ -31,3 +34,5 @@ void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa);
 rr_mem_access_log rr_get_next_mem_log(void);
 int rr_get_mem_log_list_length(void);
 void rr_clear_mem_log(void);
+
+#endif /* __KVM_X86_KERNEL_RR_H */

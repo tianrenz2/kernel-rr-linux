@@ -683,7 +683,7 @@ void kvm_set_cpu_caps(void)
 	);
 
 	kvm_cpu_cap_clear(X86_FEATURE_RDTSCP);
-	printk(KERN_INFO "Cleared rdtscp\n");
+	printk(KERN_INFO "RR Cleared rdtscp feature\n");
 
 	/*
 	 * Hide RDTSCP and RDPID if either feature is reported as supported but

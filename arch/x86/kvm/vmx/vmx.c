@@ -7462,7 +7462,7 @@ static __init void vmx_set_cpu_caps(void)
 	// if (!cpu_has_vmx_xsaves())
 	kvm_cpu_cap_clear(X86_FEATURE_XSAVES);
 	kvm_cpu_cap_clear(X86_FEATURE_XSAVEC);
-	printk(KERN_INFO "Disbled xsaves and xavec for RR\n");
+	printk(KERN_INFO "RR Disbled xsaves and xavec for RR\n");
 	// else
 	// 	printk(KERN_INFO "xsamve enabled\n");
 	// kvm_cpu_cap_set(X86_FEATURE_XSAVEOPT);
@@ -8058,9 +8058,9 @@ static __init int hardware_setup(void)
 
 	if (!enable_pml) {
 		vmx_x86_ops.cpu_dirty_log_size = 0;
-		printk(KERN_INFO "not enabled pml\n");
+		printk(KERN_INFO "RR disabled pml for verification\n");
 	} else {
-		printk(KERN_INFO "enabled pml\n");
+		printk(KERN_INFO "Enabled pml\n");
 	}
 
 	if (!cpu_has_vmx_preemption_timer())

@@ -34,14 +34,23 @@ rr_random *random_cur = NULL;
 // const unsigned long strnlen_user_addr = 0xffffffff810cbe4a;
 // const unsigned long random_bytes_addr = 0xffffffff810e1e25;
 
-const unsigned long syscall_addr = 0xffffffff81a00000;
-const unsigned long pf_excep_addr = 0xffffffff819528f0;
-const unsigned long copy_from_iter_addr = 0xffffffff816452a9;
-const unsigned long copy_from_user_addr = 0xffffffff8164c967; 
-const unsigned long copy_page_from_iter_addr = 0xffffffff8100000;
-const unsigned long strncpy_addr = 0xffffffff816c064c; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
-const unsigned long get_user_addr = 0xffffffff818fa750;
-const unsigned long strnlen_user_addr = 0xffffffff816c0751;
+// const unsigned long syscall_addr = 0xffffffff81800000;
+// const unsigned long pf_excep_addr = 0xffffffff81800ab0;
+// const unsigned long copy_from_iter_addr = 0xffffffff816452a9;
+// const unsigned long copy_from_user_addr = 0xffffffff8164c967; 
+// const unsigned long copy_page_from_iter_addr = 0xffffffff8100000;
+// const unsigned long strncpy_addr = 0xffffffff816c064c; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
+// const unsigned long get_user_addr = 0xffffffff818fa750;
+// const unsigned long strnlen_user_addr = 0xffffffff816c0751;
+
+const unsigned long syscall_addr = 0xffffffff81800000;
+const unsigned long pf_excep_addr = 0xffffffff81800ab0;
+const unsigned long copy_from_iter_addr = 0xffffffff8149923d;
+const unsigned long copy_from_user_addr = 0xffffffff814a0997; 
+const unsigned long copy_page_from_iter_addr = 0xffffffff8149ae23;
+const unsigned long strncpy_addr = 0xffffffff814d2d9b; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
+const unsigned long get_user_addr = 0xffffffff817814d0;
+const unsigned long strnlen_user_addr = 0xffffffff814d2ea1;
 
 const unsigned long random_bytes_addr_start = 0xffffffff81770030;
 const unsigned long random_bytes_addr_end = 0xffffffff817700a3;
@@ -376,7 +385,6 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
 
         do_read_mem = true;
     } else if (*cfu_ip == copy_page_from_iter_addr) {
-        printk(KERN_INFO "copy_page_from_iter_addr\n");
         len = regs->rdx;
         src_addr = regs->rsi - len;
         dest_addr = regs->rdi - len;
@@ -389,16 +397,21 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         // === End ===
 
         // === Kernel version 2 ===
-        len = regs->rax;
-        src_addr = regs->rbp;
-        dest_addr = regs->r12;
+        // len = regs->rax;
+        // src_addr = regs->rbp;
+        // dest_addr = regs->r12;
         // === End ===
+
+        // === Kernel version 3 ===
+        len = regs->rax;
+        src_addr = regs->rdi;
+        dest_addr = regs->r8;
         do_read_mem = true;
     } else if (*cfu_ip == get_user_addr) {
        cfu_log->rdx = regs->rdx;
        cfu_log->src_addr = 0;
        cfu_log->dest_addr = 0;
-       printk(KERN_INFO "get user log: %lx\n", cfu_log->rdx);
+    //    printk(KERN_INFO "get user log: %lx\n", cfu_log->rdx);
     } else if (*cfu_ip == strnlen_user_addr) {
         cfu_log->len = regs->rax;
         printk(KERN_INFO "strnlen_user_addr happened: %d\n", cfu_log->len);
@@ -568,13 +581,13 @@ static void report_record_stat(void)
     while (event != NULL) {
         if (event->type == EVENT_TYPE_INTERRUPT) {
             event_int_num++;
-            if (event->event.interrupt.lapic.vector == 33)
-                printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
+            // if (event->event.interrupt.lapic.vector == 33)
+            //     printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
         }
 
         if (event->type == EVENT_TYPE_SYSCALL) {
             event_syscall_num++;
-            printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
+            // printk(KERN_INFO "RR Record: Syscall Num=%lu", event->event.syscall.regs.rax);
         }
 
         if (event->type == EVENT_TYPE_EXCEPTION) {
@@ -587,23 +600,23 @@ static void report_record_stat(void)
 
         if (event->type == EVENT_TYPE_IO_IN) {
             event_io_in++;
-            printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
+            // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
         }
 
         if (event->type == EVENT_TYPE_CFU) {
             event_cfu++;
-            printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
+            // printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
         }
 
         if (event->type == EVENT_TYPE_RANDOM) {
             event_random++;
-            printk(KERN_INFO "RR Record: Random rip=0x%lx, buf=0x%lx, len=%lu, inst_cnt=%lu",
-                    event->rip, event->event.rand.buf, event->event.rand.len, event->inst_cnt);
+            // printk(KERN_INFO "RR Record: Random rip=0x%lx, buf=0x%lx, len=%lu, inst_cnt=%lu",
+            //         event->rip, event->event.rand.buf, event->event.rand.len, event->inst_cnt);
         }
 
         if (event->type == EVENT_TYPE_DMA_DONE) {
             event_dma_done++;
-            printk(KERN_INFO "RR Record: DMA Done");
+            // printk(KERN_INFO "RR Record: DMA Done");
         }
 
         total_event_cnt++;
@@ -635,9 +648,6 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
-    } else {
-        total_event_cnt = 0;
-
         if (rr_event_log_head != NULL) {
             rr_event_log *pre_event = rr_event_log_head;
             rr_event_log *event;
@@ -647,9 +657,10 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
                 kfree(pre_event);
                 pre_event = event;
             }
-
-
         }
+
+    } else {
+        total_event_cnt = 0;
 
         rr_event_log_head = NULL;
         rr_event_log_tail = NULL;
