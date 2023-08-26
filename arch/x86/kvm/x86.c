@@ -10388,9 +10388,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		if (rr_in_record()) {
 			uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);
 			unsigned long rip = kvm_get_linear_rip(vcpu);
-			if (inst_cnt == vcpu->last_inst_cnt) {
-				printk(KERN_WARNING "repeatitive inst cnt\n");
-			}
+			// if (inst_cnt == vcpu->last_inst_cnt) {
+			// 	printk(KERN_WARNING "repeatitive inst cnt\n");
+			// }
 			// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
 
 			vcpu->last_rip = rip;

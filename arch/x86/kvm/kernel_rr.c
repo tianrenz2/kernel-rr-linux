@@ -43,14 +43,14 @@ rr_random *random_cur = NULL;
 // const unsigned long get_user_addr = 0xffffffff818fa750;
 // const unsigned long strnlen_user_addr = 0xffffffff816c0751;
 
-const unsigned long syscall_addr = 0xffffffff81800000;
-const unsigned long pf_excep_addr = 0xffffffff81800ab0;
-const unsigned long copy_from_iter_addr = 0xffffffff8149923d;
-const unsigned long copy_from_user_addr = 0xffffffff814a0997; 
-const unsigned long copy_page_from_iter_addr = 0xffffffff8149ae23;
-const unsigned long strncpy_addr = 0xffffffff814d2d9b; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
-const unsigned long get_user_addr = 0xffffffff817814d0;
-const unsigned long strnlen_user_addr = 0xffffffff814d2ea1;
+const unsigned long syscall_addr = 0xffffffff81800000; // info addr entry_SYSCALL_64
+const unsigned long pf_excep_addr = 0xffffffff81741930; // info addr exc_page_fault
+const unsigned long copy_from_iter_addr = 0xffffffff8144af0d; // lib/iov_iter.c:186
+const unsigned long copy_from_user_addr = 0xffffffff814528e7; // lib/usercopy.c:21
+const unsigned long copy_page_from_iter_addr = 0xffffffff8144dd7e;
+const unsigned long strncpy_addr = 0xffffffff81483712; // lib/strncpy_from_user.c:141
+const unsigned long get_user_addr = 0xffffffff81708100; // arch/x86/lib/getuser.S:103
+const unsigned long strnlen_user_addr = 0xffffffff81483812; // lib/strnlen_user.c:115
 
 const unsigned long random_bytes_addr_start = 0xffffffff81770030;
 const unsigned long random_bytes_addr_end = 0xffffffff817700a3;
@@ -603,6 +603,11 @@ static void report_record_stat(void)
             // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
         }
 
+        if (event->type == EVENT_TYPE_RDTSC) {
+            event_io_in++;
+            // printk(KERN_INFO "RR Record: IO IN=%lx", event->event.io_input.value);
+        }
+
         if (event->type == EVENT_TYPE_CFU) {
             event_cfu++;
             // printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
@@ -648,6 +653,9 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
+    } else {
+        total_event_cnt = 0;
+
         if (rr_event_log_head != NULL) {
             rr_event_log *pre_event = rr_event_log_head;
             rr_event_log *event;
@@ -658,9 +666,6 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
                 pre_event = event;
             }
         }
-
-    } else {
-        total_event_cnt = 0;
 
         rr_event_log_head = NULL;
         rr_event_log_tail = NULL;
