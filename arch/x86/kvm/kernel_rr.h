@@ -12,6 +12,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record);
 void rr_set_in_replay(struct kvm_vcpu *vcpu, int replay);
 void rr_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);
 void rr_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);
+void clear_events(void);
 
 unsigned long get_rsi(struct kvm_vcpu *vcpu);
 

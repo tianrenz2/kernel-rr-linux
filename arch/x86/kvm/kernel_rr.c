@@ -52,8 +52,8 @@ const unsigned long strncpy_addr = 0xffffffff81483712; // lib/strncpy_from_user.
 const unsigned long get_user_addr = 0xffffffff81708100; // arch/x86/lib/getuser.S:103
 const unsigned long strnlen_user_addr = 0xffffffff81483812; // lib/strnlen_user.c:115
 
-const unsigned long random_bytes_addr_start = 0xffffffff81770030;
-const unsigned long random_bytes_addr_end = 0xffffffff817700a3;
+const unsigned long random_bytes_addr_start = 0xffffffff81533620; // b _get_random_bytes
+const unsigned long random_bytes_addr_end = 0xffffffff815336ee; // b drivers/char/random.c:382
 const unsigned long last_removed_addr = 0;
 
 
@@ -414,7 +414,7 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     //    printk(KERN_INFO "get user log: %lx\n", cfu_log->rdx);
     } else if (*cfu_ip == strnlen_user_addr) {
         cfu_log->len = regs->rax;
-        printk(KERN_INFO "strnlen_user_addr happened: %d\n", cfu_log->len);
+        // printk(KERN_INFO "strnlen_user_addr happened: %d\n", cfu_log->len);
     }
 
     if (do_read_mem) {
@@ -458,6 +458,10 @@ static void handle_event_random_generator(struct kvm_vcpu *vcpu, void *opaque)
     unsigned long rip = kvm_arch_vcpu_get_ip(vcpu);
 
     if (rip == random_bytes_addr_start) {
+        if (random_cur != NULL) {
+            printk(KERN_WARNING "Intercept random in middle of a random");
+        }
+
         regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
         rand_log = kmalloc(sizeof(rr_random), GFP_KERNEL);
 
@@ -656,20 +660,6 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
     } else {
         total_event_cnt = 0;
 
-        if (rr_event_log_head != NULL) {
-            rr_event_log *pre_event = rr_event_log_head;
-            rr_event_log *event;
-
-            while (pre_event != NULL) {
-                event = pre_event->next;
-                kfree(pre_event);
-                pre_event = event;
-            }
-        }
-
-        rr_event_log_head = NULL;
-        rr_event_log_tail = NULL;
-
         printk(KERN_INFO "RR initialized\n");
 
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
@@ -678,6 +668,24 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
     rr_clear_mem_log();
 
+}
+
+void clear_events(void)
+{
+    if (rr_event_log_head != NULL) {
+        rr_event_log *pre_event = rr_event_log_head;
+        rr_event_log *event;
+
+        while (pre_event != NULL) {
+            event = pre_event->next;
+            kfree(pre_event);
+            pre_event = event;
+        }
+    }
+
+    rr_event_log_head = NULL;
+    rr_event_log_tail = NULL;
+    printk(KERN_INFO "Records cleard\n");
 }
 
 void rr_clear_mem_log(void)

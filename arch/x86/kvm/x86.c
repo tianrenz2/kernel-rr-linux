@@ -5831,6 +5831,16 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 
+	case KVM_RR_CLEAR_EVENTS: {
+		int r;
+		
+		clear_events();
+
+		r = 0;
+		break;
+	}
+
+
 	default:
 		printk(KERN_WARNING "Invalid type %lu\n", ioctl);
 		r = -EINVAL;
@@ -8694,6 +8704,7 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	emulator_pio_in(vcpu, vcpu->arch.pio.size, vcpu->arch.pio.port, &val, 1);
 	kvm_rax_write(vcpu, val);
 
+	// printk(KERN_INFO "fast_pio: %lu\n", val);
 	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
 		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
 	}

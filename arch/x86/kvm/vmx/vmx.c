@@ -7462,7 +7462,7 @@ static __init void vmx_set_cpu_caps(void)
 	// if (!cpu_has_vmx_xsaves())
 	kvm_cpu_cap_clear(X86_FEATURE_XSAVES);
 	kvm_cpu_cap_clear(X86_FEATURE_XSAVEC);
-	printk(KERN_INFO "RR Disbled xsaves and xavec for RR\n");
+	printk(KERN_INFO "RR Disbled xsaves and xavec for RR, mark\n");
 	// else
 	// 	printk(KERN_INFO "xsamve enabled\n");
 	// kvm_cpu_cap_set(X86_FEATURE_XSAVEOPT);
