@@ -264,6 +264,10 @@ int kvm_read_guest_virt(struct kvm_vcpu *vcpu,
 	gva_t addr, void *val, unsigned int bytes,
 	struct x86_exception *exception);
 
+int rr_kvm_read_guest_virt(struct kvm_vcpu *vcpu,
+						   gva_t addr, void *val, unsigned int bytes,
+						   struct x86_exception *exception, u32 access);
+
 int kvm_write_guest_virt_system(struct kvm_vcpu *vcpu,
 	gva_t addr, void *val, unsigned int bytes,
 	struct x86_exception *exception);

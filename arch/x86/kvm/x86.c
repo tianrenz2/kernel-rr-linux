@@ -6917,8 +6917,10 @@ static int kvm_read_guest_virt_helper(gva_t addr, void *val, unsigned int bytes,
 		unsigned toread = min(bytes, (unsigned)PAGE_SIZE - offset);
 		int ret;
 
-		if (gpa == UNMAPPED_GVA)
+		if (gpa == UNMAPPED_GVA) {
+			printk(KERN_WARNING "Failed to read add 0x%lx\n", addr);
 			return X86EMUL_PROPAGATE_FAULT;
+		}
 		ret = kvm_vcpu_read_guest_page(vcpu, gpa >> PAGE_SHIFT, data,
 					       offset, toread);
 		if (ret < 0) {
@@ -6960,6 +6962,21 @@ static int kvm_fetch_guest_virt(struct x86_emulate_ctxt *ctxt,
 		return X86EMUL_IO_NEEDED;
 
 	return X86EMUL_CONTINUE;
+}
+
+int rr_kvm_read_guest_virt(struct kvm_vcpu *vcpu,
+						   gva_t addr, void *val, unsigned int bytes,
+						   struct x86_exception *exception, u32 access)
+{
+	/*
+	 * FIXME: this should call handle_emulation_failure if X86EMUL_IO_NEEDED
+	 * is returned, but our callers are not ready for that and they blindly
+	 * call kvm_inject_page_fault.  Ensure that they at least do not leak
+	 * uninitialized kernel stack memory into cr2 and error code.
+	 */
+	memset(exception, 0, sizeof(*exception));
+	return kvm_read_guest_virt_helper(addr, val, bytes, vcpu, access,
+					  exception);
 }
 
 int kvm_read_guest_virt(struct kvm_vcpu *vcpu,
@@ -13122,6 +13139,11 @@ static int kvm_sev_es_ins(struct kvm_vcpu *vcpu, unsigned int size,
 void rr_get_regs(struct kvm_vcpu *vcpu, __maybe_unused struct kvm_regs *regs)
 {
 	__get_regs(vcpu, regs);
+}
+
+void rr_get_sregs(struct kvm_vcpu *vcpu, __maybe_unused struct kvm_sregs *sregs)
+{
+	__get_sregs(vcpu, sregs);
 }
 
 void rr_set_regs(struct kvm_vcpu *vcpu, __maybe_unused struct kvm_regs *regs)

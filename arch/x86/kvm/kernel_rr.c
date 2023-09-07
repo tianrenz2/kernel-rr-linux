@@ -3,6 +3,7 @@
 #include <asm/uaccess.h>
 #include <linux/buffer_head.h>
 
+#include "x86.h"
 #include "kvm_cache_regs.h"
 #include "kvm_emulate.h"
 
@@ -55,6 +56,8 @@ const unsigned long strnlen_user_addr = 0xffffffff81483812; // lib/strnlen_user.
 const unsigned long random_bytes_addr_start = 0xffffffff81533620; // b _get_random_bytes
 const unsigned long random_bytes_addr_end = 0xffffffff815336ee; // b drivers/char/random.c:382
 const unsigned long last_removed_addr = 0;
+
+const unsigned long uaccess_begin = 0xffffffff811e084c;
 
 
 // target_ulong cfu_addr1 = 0xffffffff811183e0; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
@@ -333,6 +336,7 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
 {
 
     struct kvm_regs *regs;
+    struct kvm_sregs *sregs;
     rr_event_log *event_log;
     void *val;
     int ret;
@@ -344,15 +348,18 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     unsigned long len;
     bool do_read_mem = false;
     int j;
+    __maybe_unused u8 dest_data[4096];
 
     cfu_log = kmalloc(sizeof(rr_cfu), GFP_KERNEL);
 
     regs = kmalloc(sizeof(struct kvm_regs), GFP_KERNEL);
+    sregs = kmalloc(sizeof(struct kvm_sregs), GFP_KERNEL);
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
 
     event_log->type = EVENT_TYPE_CFU;
 
     rr_get_regs(vcpu, regs);
+    rr_get_sregs(vcpu, sregs);
 
     emulate_ctxt = vcpu->arch.emulate_ctxt;
 
@@ -385,7 +392,7 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
 
         do_read_mem = true;
     } else if (*cfu_ip == copy_page_from_iter_addr) {
-        len = regs->rdx;
+        len = regs->rbx;
         src_addr = regs->rsi - len;
         dest_addr = regs->rdi - len;
         do_read_mem = true;
@@ -415,6 +422,10 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
     } else if (*cfu_ip == strnlen_user_addr) {
         cfu_log->len = regs->rax;
         // printk(KERN_INFO "strnlen_user_addr happened: %d\n", cfu_log->len);
+    } else if (*cfu_ip == uaccess_begin) {
+        cfu_log->src_addr = regs->rax;
+        cfu_log->len = sregs->cs.base;
+        printk(KERN_INFO "Read from src=0x%lx, dest=0x%lx, len=%lu\n", cfu_log->src_addr, cfu_log->dest_addr, cfu_log->len);
     }
 
     if (do_read_mem) {
@@ -422,9 +433,28 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         cfu_log->dest_addr = dest_addr;
         cfu_log->len = len;
 
-        emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
-                                            cfu_log->dest_addr, cfu_log->data, cfu_log->len,
-                                            &emulate_ctxt->exception);
+        if (cfu_log->len > 4096) {
+            printk(KERN_WARNING "Oversized: 0x%lx, %lu, addr=0x%lx\n", dest_addr, cfu_log->len, regs->rip);
+        } else {
+            // printk(KERN_INFO "Read from src=0x%lx, dest=0x%lx, len=%lu\n", cfu_log->src_addr, cfu_log->dest_addr, cfu_log->len);
+
+            ret = rr_kvm_read_guest_virt(vcpu,
+                                      cfu_log->src_addr, cfu_log->data, cfu_log->len,
+                                      &emulate_ctxt->exception, PFERR_USER_MASK);
+
+            // ret = rr_kvm_read_guest_virt(vcpu,
+            //                           cfu_log->dest_addr, dest_data, cfu_log->len,
+            //                           &emulate_ctxt->exception, 0);
+
+            if (ret != X86EMUL_CONTINUE) {
+                printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+                    cfu_log->src_addr, ret);
+            }
+        }
+
+        // if (strcmp(cfu_log->data, dest_data) == 0) {
+        //     printk(KERN_WARNING "read data matched\n");
+        // }
 
         // printk(KERN_INFO "CFU: read from addr=0x%lx, len=%d, ret=%d, rip=0x%lx\n",
         //        cfu_log->dest_addr, len, ret, regs->rip);
@@ -432,9 +462,6 @@ static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
         // if (ret != X86EMUL_PROPAGATE_FAULT) {
         //     printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
         //            cfu_log->dest_addr, ret);
-        // }
-        // for (j=0; j < 8; j++) {
-        //     printk(KERN_INFO "CFU data: %u\n", cfu_log->data[0]);
         // }
     }
 
