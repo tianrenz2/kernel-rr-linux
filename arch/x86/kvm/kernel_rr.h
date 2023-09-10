@@ -37,4 +37,13 @@ rr_mem_access_log rr_get_next_mem_log(void);
 int rr_get_mem_log_list_length(void);
 void rr_clear_mem_log(void);
 
+void handle_hypercall_cfu(struct kvm_vcpu *vcpu,
+                          unsigned long src,
+                          unsigned long dest,
+                          unsigned long len);
+void handle_hypercall_random(struct kvm_vcpu *vcpu,
+                                unsigned long buf,
+                                unsigned long len);
+void handle_hypercall_getuser(struct kvm_vcpu *vcpu,
+                              unsigned long val);
 #endif /* __KVM_X86_KERNEL_RR_H */

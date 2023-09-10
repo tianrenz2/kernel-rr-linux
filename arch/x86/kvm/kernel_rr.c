@@ -44,17 +44,32 @@ rr_random *random_cur = NULL;
 // const unsigned long get_user_addr = 0xffffffff818fa750;
 // const unsigned long strnlen_user_addr = 0xffffffff816c0751;
 
+// == no hypercall
+// const unsigned long syscall_addr = 0xffffffff81800000; // info addr entry_SYSCALL_64
+// const unsigned long pf_excep_addr = 0xffffffff81741930; // info addr exc_page_fault
+// const unsigned long copy_from_iter_addr = 0xffffffff8144af0d; // lib/iov_iter.c:186
+// const unsigned long copy_from_user_addr = 0xffffffff814528e7; // lib/usercopy.c:21
+// const unsigned long copy_page_from_iter_addr = 0xffffffff8144dd7e;
+// const unsigned long strncpy_addr = 0xffffffff81483732; // lib/strncpy_from_user.c:141
+// const unsigned long get_user_addr = 0xffffffff81708100; // arch/x86/lib/getuser.S:103
+// const unsigned long strnlen_user_addr = 0xffffffff81483832; // lib/strnlen_user.c:115
+
+// const unsigned long random_bytes_addr_start = 0xffffffff81533620; // b _get_random_bytes
+// const unsigned long random_bytes_addr_end = 0xffffffff815337c0; // b drivers/char/random.c:382
+
+// == with hypercall
 const unsigned long syscall_addr = 0xffffffff81800000; // info addr entry_SYSCALL_64
-const unsigned long pf_excep_addr = 0xffffffff81741930; // info addr exc_page_fault
+const unsigned long pf_excep_addr = 0xffffffff81700a20; // info addr exc_page_fault
 const unsigned long copy_from_iter_addr = 0xffffffff8144af0d; // lib/iov_iter.c:186
 const unsigned long copy_from_user_addr = 0xffffffff814528e7; // lib/usercopy.c:21
 const unsigned long copy_page_from_iter_addr = 0xffffffff8144dd7e;
-const unsigned long strncpy_addr = 0xffffffff81483712; // lib/strncpy_from_user.c:141
-const unsigned long get_user_addr = 0xffffffff81708100; // arch/x86/lib/getuser.S:103
-const unsigned long strnlen_user_addr = 0xffffffff81483812; // lib/strnlen_user.c:115
+const unsigned long strncpy_addr = 0xffffffff81483732; // lib/strncpy_from_user.c:141
+const unsigned long get_user_addr = 0xffffffff816c2220; // arch/x86/lib/getuser.S:103
+const unsigned long strnlen_user_addr = 0xffffffff814458d2; // lib/strnlen_user.c:115
 
-const unsigned long random_bytes_addr_start = 0xffffffff81533620; // b _get_random_bytes
-const unsigned long random_bytes_addr_end = 0xffffffff815336ee; // b drivers/char/random.c:382
+const unsigned long random_bytes_addr_start = 0xffffffff81533660; // b _get_random_bytes
+const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/char/random.c:382
+
 const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
@@ -557,6 +572,97 @@ static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
     return;
 }
 
+void handle_hypercall_random(struct kvm_vcpu *vcpu,
+                             unsigned long buf,
+                             unsigned long len)
+{
+    rr_event_log *event_log;
+    rr_random *rand_log;
+    struct x86_emulate_ctxt *emulate_ctxt;
+    int ret = 0;
+
+    rand_log = kmalloc(sizeof(rr_random), GFP_KERNEL);
+
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    
+    event_log->type = EVENT_TYPE_RANDOM;
+
+    rand_log->buf = buf;
+    rand_log->len = len;
+
+    emulate_ctxt = vcpu->arch.emulate_ctxt;
+
+    ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
+                                        rand_log->buf, rand_log->data, rand_log->len,
+                                        &emulate_ctxt->exception);
+    if (ret != X86EMUL_CONTINUE) {
+        printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+            rand_log->buf, ret);
+    }
+
+    event_log->event.rand = *rand_log;
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
+}
+
+void handle_hypercall_cfu(struct kvm_vcpu *vcpu,
+                          unsigned long src,
+                          unsigned long dest,
+                          unsigned long len)
+{
+    rr_event_log *event_log;
+    struct x86_emulate_ctxt *emulate_ctxt;
+    rr_cfu *cfu_log;
+    int ret;
+
+    cfu_log = kmalloc(sizeof(rr_cfu), GFP_KERNEL);
+
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+
+    cfu_log->src_addr = src;
+    cfu_log->dest_addr = dest;
+    cfu_log->len = len;
+
+    emulate_ctxt = vcpu->arch.emulate_ctxt;
+    event_log->type = EVENT_TYPE_CFU;
+
+    if (cfu_log->len > 4096) {
+        printk(KERN_WARNING "Oversized: 0x%lx, %lu\n", dest, len);
+    } else {
+        // printk(KERN_INFO "Read from src=0x%lx, dest=0x%lx, len=%lu\n", cfu_log->src_addr, cfu_log->dest_addr, cfu_log->len);
+        ret = rr_kvm_read_guest_virt(vcpu,
+                                    cfu_log->src_addr, cfu_log->data, cfu_log->len,
+                                    &emulate_ctxt->exception, PFERR_USER_MASK);
+        if (ret != X86EMUL_CONTINUE) {
+            printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
+                cfu_log->src_addr, ret);
+        }
+    }
+
+    event_log->event.cfu = *cfu_log;
+
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
+}
+
+void handle_hypercall_getuser(struct kvm_vcpu *vcpu,
+                              unsigned long val)
+{
+    rr_event_log *event_log;
+    rr_gfu *gfu_log;
+
+    gfu_log = kmalloc(sizeof(rr_gfu), GFP_KERNEL);
+
+    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+
+    gfu_log->val = val;
+    event_log->type = EVENT_TYPE_GFU;
+    event_log->event.gfu = *gfu_log;
+
+    if (rr_post_handle_event(vcpu, event_log))
+        rr_insert_event_log(event_log);
+}
+
 static void handle_event_rdtsc(struct kvm_vcpu *vcpu, void *opaque)
 {
     rr_event_log *event_log;
@@ -607,6 +713,7 @@ static void report_record_stat(void)
     int event_cfu = 0;
     int event_random = 0;
     int event_dma_done = 0;
+    int event_gfu = 0;
 
     printk(KERN_WARNING "=== Report recorded events ===\n");
     while (event != NULL) {
@@ -644,6 +751,11 @@ static void report_record_stat(void)
             // printk(KERN_INFO "RR Record: CFU rip=0x%lx, addr=0x%lx, inst_cnt=%lu", event->rip, event->event.cfu.dest_addr, event->inst_cnt);
         }
 
+        if (event->type == EVENT_TYPE_GFU) {
+            event_gfu++;
+            // printk(KERN_INFO "RR Record: DMA Done");
+        }
+
         if (event->type == EVENT_TYPE_RANDOM) {
             event_random++;
             // printk(KERN_INFO "RR Record: Random rip=0x%lx, buf=0x%lx, len=%lu, inst_cnt=%lu",
@@ -661,8 +773,8 @@ static void report_record_stat(void)
 
     }
 
-    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d\n",
-            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done);
+    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d, gfu=%d\n",
+            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done, event_gfu);
 }
 
 void rr_set_in_record(struct kvm_vcpu *vcpu, int record)

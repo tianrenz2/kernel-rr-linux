@@ -9299,21 +9299,21 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		a3 &= 0xFFFFFFFF;
 	}
 
-	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
-		printk(KERN_WARNING "unknown hypercall %lu\n", nr);
-		// vcpu->run->exit_reason = 999;
-		// handled_hype = true;
+	// if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
+	// 	printk(KERN_WARNING "unknown hypercall %lu\n", nr);
+	// 	// vcpu->run->exit_reason = 999;
+	// 	// handled_hype = true;
 
-		if (!vcpu->in_hype){
-			kvm_start_inst_cnt(vcpu);
-		} else {
-			kvm_stop_inst_cnt(vcpu);
-		}
+	// 	if (!vcpu->in_hype){
+	// 		kvm_start_inst_cnt(vcpu);
+	// 	} else {
+	// 		kvm_stop_inst_cnt(vcpu);
+	// 	}
 
-		return kvm_skip_emulated_instruction(vcpu);
-		// ret = -KVM_EPERM;
-		// goto out;
-	}
+	// 	return kvm_skip_emulated_instruction(vcpu);
+	// 	// ret = -KVM_EPERM;
+	// 	// goto out;
+	// }
 
 	ret = -KVM_ENOSYS;
 
@@ -9368,6 +9368,29 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		vcpu->run->hypercall.longmode = op_64_bit;
 		vcpu->arch.complete_userspace_io = complete_hypercall_exit;
 		return 0;
+	}
+	case KVM_HC_RR_RANDOM: {
+		if (rr_in_record()) {
+			handle_hypercall_random(vcpu, a0, a1);
+		}
+		ret = 0;
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+	case KVM_HC_RR_DATA_IN:
+	case KVM_HC_RR_STRNCPY: {
+		// printk(KERN_INFO "KVM data copy intercepted: src=0x%lx, dest=0x%lx, len=%lu\n", a0, a1, a2);
+		if (rr_in_record()) {
+			handle_hypercall_cfu(vcpu, a0, a1, a2);
+		}
+		ret = 0;
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+	case KVM_HC_RR_GETUSER: {
+		if (rr_in_record()) {
+			handle_hypercall_getuser(vcpu, a0);
+		}
+		ret = 0;
+		return kvm_skip_emulated_instruction(vcpu);
 	}
 	default:
 		ret = -KVM_ENOSYS;
