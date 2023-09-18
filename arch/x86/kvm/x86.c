@@ -1228,10 +1228,9 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 {
 	bool skip_tlb_flush = false;
 	unsigned long pcid = 0;
+	unsigned long rip;
 #ifdef CONFIG_X86_64
 	bool pcid_enabled = kvm_read_cr4_bits(vcpu, X86_CR4_PCIDE);
-
-	printk("set cr3: 0x%lx\n", cr3);
 
 	if (pcid_enabled) {
 		skip_tlb_flush = cr3 & X86_CR3_PCID_NOFLUSH;
@@ -1240,8 +1239,9 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 	}
 #endif
 
-	printk("cr3 after processed: 0x%lx\n", cr3);
+	rip = kvm_get_linear_rip(vcpu);
 
+	printk(KERN_INFO "set cr3 rip=0x%x\n", rip);
 	/* PDPTRs are always reloaded for PAE paging. */
 	if (cr3 == kvm_read_cr3(vcpu) && !is_pae_paging(vcpu))
 		goto handle_tlb_flush;
@@ -9290,6 +9290,9 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 	trace_kvm_hypercall(nr, a0, a1, a2, a3);
 
+	if (rr_in_record())
+		return kvm_skip_emulated_instruction(vcpu);
+
 	op_64_bit = is_64_bit_hypercall(vcpu);
 	if (!op_64_bit) {
 		nr &= 0xFFFFFFFF;
@@ -9392,8 +9395,14 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = 0;
 		return kvm_skip_emulated_instruction(vcpu);
 	}
+	case KVM_HC_EXCP_PF: {
+		ret = 0;
+		return kvm_skip_emulated_instruction(vcpu);
+	}
 	default:
-		ret = -KVM_ENOSYS;
+		ret = 0;
+		// printk(KERN_INFO "unrecognized hypercall");
+		// ret = -KVM_ENOSYS;
 		break;
 	}
 out:

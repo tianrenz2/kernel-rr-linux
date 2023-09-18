@@ -34,6 +34,7 @@
 #define KVM_HC_RR_STRNCPY			14
 #define KVM_HC_RR_RANDOM			15
 #define KVM_HC_RR_GETUSER			16
+#define KVM_HC_EXCP_PF              50
 
 /*
  * hypercalls use architecture specific

@@ -2521,6 +2521,8 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 				"1-setting enable VPID VM-execution control\n");
 	}
 
+	_cpu_based_exec_control |= CPU_BASED_CR3_LOAD_EXITING;
+
 	// _cpu_based_exec_control |= (CPU_BASED_CR3_STORE_EXITING | CPU_BASED_CR3_LOAD_EXITING | CPU_BASED_INVLPG_EXITING);
 
 	min = VM_EXIT_SAVE_DEBUG_CONTROLS | VM_EXIT_ACK_INTR_ON_EXIT;
