@@ -318,34 +318,28 @@ static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 {
 
-    struct kvm_regs *regs;
-    rr_event_log *event_log;
-    rr_interrupt *int_log;
-    lapic_log *lapic = (lapic_log *)opaque;
-    unsigned long rip;
+    // struct kvm_regs *regs;
+    // rr_event_log *event_log;
+    // rr_interrupt *int_log;
+    // lapic_log *lapic = (lapic_log *)opaque;
+    // unsigned long rip;
 
-	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
+	// regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+    // event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    // int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
 
-    int_log->lapic = *lapic;
+    // int_log->lapic = *lapic;
 
-    event_log->event.interrupt = *int_log;
-    event_log->type = EVENT_TYPE_INTERRUPT;
-    event_log->next = NULL;
+    // event_log->event.interrupt = *int_log;
+    // event_log->type = EVENT_TYPE_INTERRUPT;
+    // event_log->next = NULL;
 
-    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+    // event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    // printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
-
-    // if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
-    //     return;
-    // }
-
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
-    else
-        printk(KERN_INFO "Failed to append int %d\n", event_log->event.interrupt.lapic.vector);
+    // if (rr_post_handle_event(vcpu, event_log))
+    //     rr_insert_event_log(event_log);
+    // else
+    //     printk(KERN_INFO "Failed to append int %d\n", event_log->event.interrupt.lapic.vector);
 }
 
 static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
@@ -549,24 +543,24 @@ static void handle_event_random_generator(struct kvm_vcpu *vcpu, void *opaque)
 
 static void handle_event_io_in(struct kvm_vcpu *vcpu, void *opaque)
 {
-    rr_event_log *event_log;
-    unsigned long *io_val = (unsigned long *)opaque;
-    rr_io_input *io_input;
+    // rr_event_log *event_log;
+    // unsigned long *io_val = (unsigned long *)opaque;
+    // rr_io_input *io_input;
     
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    io_input = kmalloc(sizeof(rr_io_input), GFP_KERNEL);
+    // event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    // io_input = kmalloc(sizeof(rr_io_input), GFP_KERNEL);
 
-    // printk(KERN_INFO "Recording IO IN: %lx\n", *io_val);
+    // // printk(KERN_INFO "Recording IO IN: %lx\n", *io_val);
 
-    io_input->value = *io_val;
+    // io_input->value = *io_val;
 
-    event_log->type = EVENT_TYPE_IO_IN;
-    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
-    event_log->event.io_input = *io_input;
-    event_log->next = NULL;
+    // event_log->type = EVENT_TYPE_IO_IN;
+    // event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+    // event_log->event.io_input = *io_input;
+    // event_log->next = NULL;
 
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
+    // if (rr_post_handle_event(vcpu, event_log))
+    //     rr_insert_event_log(event_log);
 
     // printk(KERN_WARNING "IO event\n");
 
@@ -666,22 +660,22 @@ void handle_hypercall_getuser(struct kvm_vcpu *vcpu,
 
 static void handle_event_rdtsc(struct kvm_vcpu *vcpu, void *opaque)
 {
-    rr_event_log *event_log;
-    unsigned long *tsc_val = (unsigned long *)opaque;
-    rr_io_input *io_input;
+    // rr_event_log *event_log;
+    // unsigned long *tsc_val = (unsigned long *)opaque;
+    // rr_io_input *io_input;
     
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    io_input = kmalloc(sizeof(rr_io_input), GFP_KERNEL);
+    // event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
+    // io_input = kmalloc(sizeof(rr_io_input), GFP_KERNEL);
 
-    io_input->value = *tsc_val;
+    // io_input->value = *tsc_val;
 
-    event_log->type = EVENT_TYPE_RDTSC;
-    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
-    event_log->event.io_input = *io_input;
-    event_log->next = NULL;
+    // event_log->type = EVENT_TYPE_RDTSC;
+    // event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
+    // event_log->event.io_input = *io_input;
+    // event_log->next = NULL;
 
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
+    // if (rr_post_handle_event(vcpu, event_log))
+    //     rr_insert_event_log(event_log);
 
     return;
 }
@@ -861,7 +855,7 @@ int rr_in_replay(void)
 
 int rr_in_record(void)
 {
-    return in_record;
+    return false;
 }
 EXPORT_SYMBOL_GPL(rr_in_record);
 

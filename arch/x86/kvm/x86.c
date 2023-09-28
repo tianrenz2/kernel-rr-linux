@@ -318,22 +318,38 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 {
 	int r0, r1, r2;
 	bool paused;
+	u64 config = 0;
+	u64 global_ctrl, fixed_ctrl, gp_ctrl = 0;
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	int i;
 
 	vcpu->in_hype = true;
 
-	// Setting up MSRs for performance counting.
-	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 0, false);
-	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
-	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 30064771087, false);
+	// pmu->event_select
 
-	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	config = (ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+	global_ctrl |= (1ULL << 0);
+	fixed_ctrl |= (1ULL << 0);
+	gp_ctrl |= 0xc4;
+	gp_ctrl |= (ARCH_PERFMON_EVENTSEL_ENABLE | ARCH_PERFMON_EVENTSEL_OS);
+	// global_ctrl |= 1ULL << 1;
+
+	// Setting up MSRs for performance counting.
+
+	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, 0, false);
+	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
+	// r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
+	r2 = __kvm_set_msr(vcpu, MSR_P6_EVNTSEL0, gp_ctrl, false);
+	// r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 4294967311, false);
+
+	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_BRANCH_INSTRUCTIONS);
 	
 	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", vcpu->rr_start_point, r0, r1, r2);
 }
 
 u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 {
-	return kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	return kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_BRANCH_INSTRUCTIONS);
 }
 
 
@@ -1241,7 +1257,6 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 
 	rip = kvm_get_linear_rip(vcpu);
 
-	printk(KERN_INFO "set cr3 rip=0x%x\n", rip);
 	/* PDPTRs are always reloaded for PAE paging. */
 	if (cr3 == kvm_read_cr3(vcpu) && !is_pae_paging(vcpu))
 		goto handle_tlb_flush;
@@ -8722,9 +8737,9 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	kvm_rax_write(vcpu, val);
 
 	// printk(KERN_INFO "fast_pio: %lu\n", val);
-	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
-		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
-	}
+	// if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+	// 	rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
+	// }
 
 	return kvm_skip_emulated_instruction(vcpu);
 }
@@ -9318,6 +9333,8 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	// 	// goto out;
 	// }
 
+	// printk(KERN_INFO "hypercall\n");
+
 	ret = -KVM_ENOSYS;
 
 	switch (nr) {
@@ -9622,12 +9639,10 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			static_call(kvm_x86_set_irq)(vcpu);
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
 			
-			if (rr_in_record()) {
-				if (intr == 33)
-					printk(KERN_INFO "injecting interrupt %d\n", intr);
-				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, intr, 1));
-				vcpu->int_injected++;
-			}
+			// if (rr_in_record()) {
+			// 	rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, intr, 1));
+			// 	vcpu->int_injected++;
+			// }
 		}
 		if (kvm_cpu_has_injectable_intr(vcpu))
 			static_call(kvm_x86_enable_irq_window)(vcpu);
@@ -10451,7 +10466,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			// if (inst_cnt == vcpu->last_inst_cnt) {
 			// 	printk(KERN_WARNING "repeatitive inst cnt\n");
 			// }
-			// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
+			printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
 
 			vcpu->last_rip = rip;
 			vcpu->last_inst_cnt = inst_cnt;

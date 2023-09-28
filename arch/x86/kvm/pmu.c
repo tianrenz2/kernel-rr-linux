@@ -21,6 +21,8 @@
 #include "lapic.h"
 #include "pmu.h"
 
+#include "kernel_rr.h"
+
 /* This is enough to filter the vast majority of currently defined events. */
 #define KVM_PMU_EVENT_FILTER_MAX_EVENTS 300
 
@@ -110,6 +112,8 @@ static void pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type,
 		.config = config,
 	};
 
+	printk("pmc exclude user %d, exclude kernel %d,\n", exclude_user, exclude_kernel);
+
 	if (type == PERF_TYPE_HARDWARE && config >= PERF_COUNT_HW_MAX)
 		return;
 
@@ -185,6 +189,8 @@ void reprogram_gp_counter(struct kvm_pmc *pmc, u64 eventsel)
 	struct kvm_pmu *pmu = vcpu_to_pmu(pmc->vcpu);
 	bool allow_event = true;
 
+	// printk("[reprogram_gp_counter] gp counter start: 0x%lx\n", eventsel);
+
 	if (eventsel & ARCH_PERFMON_EVENTSEL_PIN_CONTROL)
 		printk_once("kvm pmu: pin control bit is ignored\n");
 
@@ -227,6 +233,7 @@ void reprogram_gp_counter(struct kvm_pmc *pmc, u64 eventsel)
 	pmc_release_perf_event(pmc);
 
 	pmc->current_config = eventsel;
+	printk("[reprogram_gp_counter] gp counter: 0x%lx\n", pmc->current_config);
 	pmc_reprogram_counter(pmc, type, config,
 			      !(eventsel & ARCH_PERFMON_EVENTSEL_USR),
 			      !(eventsel & ARCH_PERFMON_EVENTSEL_OS),
@@ -261,7 +268,7 @@ void reprogram_fixed_counter(struct kvm_pmc *pmc, u8 ctrl, int idx)
 
 	pmc_release_perf_event(pmc);
 
-	printk(KERN_WARNING "[reprogram_fixed_counter]: called\n");
+	printk(KERN_WARNING "[reprogram_fixed_counter]: ctrl=%d\n", ctrl);
 
 	pmc->current_config = (u64)ctrl;
 	pmc_reprogram_counter(pmc, PERF_TYPE_HARDWARE,
@@ -607,7 +614,15 @@ u64 kvm_pmu_read_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
 		event_match = eventsel_match_perf_hw_id(pmc, perf_hw_id);
 		cpl_match = cpl_is_matched(pmc);
 
+
+		// if (rr_in_record()) {
+		// 	printk("rr in record\n");
+		// 	return pmc_read_counter(pmc);
+		// }
+
+		// Currently not determine cpl due to rr
 		if (event_match && cpl_match) {
+		// if (event_match) {
 			return pmc_read_counter(pmc);
 		} 
 		// else {
