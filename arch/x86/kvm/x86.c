@@ -314,26 +314,46 @@ u64 inst_cnt = 0;
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated);
 
-static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu)
+static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 {
 	int r0, r1, r2;
 	u64 global_ctrl, fixed_ctrl = 0;
 
 	global_ctrl |= (1ULL << 32);
-	fixed_ctrl |= (1ULL << 0);
+
+	if (kernel_only)
+		fixed_ctrl |= (1ULL << 0);
+	else
+		fixed_ctrl |= 3;
 
 	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 0, false);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
-
-	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", vcpu->rr_start_point, r0, r1, r2);
 }
 
-static void rr_setup_gp_counter(struct kvm_vcpu *vcpu)
+static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 {
-	// To be implemented
-}
+	int r0, r1, r2;
+	u64 global_ctrl, gp_ctrl = 0;
 
+	global_ctrl |= (1ULL << 0);
+
+	// branch retired
+	// gp_ctrl |= 0xc4;
+
+	// inst retired
+	gp_ctrl |= 0xc0;
+
+	gp_ctrl |= (ARCH_PERFMON_EVENTSEL_OS | ARCH_PERFMON_EVENTSEL_ENABLE);
+
+	if (!kernel_only)
+		gp_ctrl |= ARCH_PERFMON_EVENTSEL_USR;
+
+	// Setting up MSRs for performance counting.
+	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, 0, false);
+	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
+	r2 = __kvm_set_msr(vcpu, MSR_P6_EVNTSEL0, gp_ctrl, false);
+}
 
 static void rr_disable_counters(struct kvm_vcpu *vcpu)
 {
@@ -346,9 +366,10 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 
 	vcpu->in_hype = true;
 	
-	rr_setup_fixed_counter(vcpu);
+	rr_setup_gp_counter(vcpu, true);
 
 	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	printk(KERN_WARNING "initial inst cnt: %llu\n", vcpu->rr_start_point);
 }
 
 u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
@@ -370,7 +391,7 @@ void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
 	printk(KERN_WARNING "==== Finished Hype ====\n");
 	printk(KERN_WARNING "final cnt=%llu\n", new_cnt);
 
-	inst_cnt = new_cnt - inst_cnt;
+	inst_cnt = new_cnt - vcpu->rr_start_point;
 
 	printk(KERN_WARNING "delta inst cnt=%llu\n", inst_cnt);
 }

@@ -229,6 +229,7 @@ void reprogram_gp_counter(struct kvm_pmc *pmc, u64 eventsel)
 
 	pmc_release_perf_event(pmc);
 
+	printk(KERN_WARNING "[reprogram_gp_counter]: called\n");
 	pmc->current_config = eventsel;
 	pmc_reprogram_counter(pmc, type, config,
 			      !(eventsel & ARCH_PERFMON_EVENTSEL_USR),
