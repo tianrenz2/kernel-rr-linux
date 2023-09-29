@@ -314,21 +314,41 @@ u64 inst_cnt = 0;
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated);
 
-void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
+static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu)
 {
 	int r0, r1, r2;
-	bool paused;
+	u64 global_ctrl, fixed_ctrl = 0;
+
+	global_ctrl |= (1ULL << 32);
+	fixed_ctrl |= (1ULL << 0);
+
+	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 0, false);
+	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
+	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
+
+	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", vcpu->rr_start_point, r0, r1, r2);
+}
+
+static void rr_setup_gp_counter(struct kvm_vcpu *vcpu)
+{
+	// To be implemented
+}
+
+
+static void rr_disable_counters(struct kvm_vcpu *vcpu)
+{
+	__kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 0, false);
+}
+
+void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
+{
+	int i;
 
 	vcpu->in_hype = true;
-
-	// Setting up MSRs for performance counting.
-	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 0, false);
-	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
-	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, 30064771087, false);
+	
+	rr_setup_fixed_counter(vcpu);
 
 	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
-	
-	printk(KERN_WARNING "initial inst cnt: %llu r0=%d, r1=%d, r2=%d\n", vcpu->rr_start_point, r0, r1, r2);
 }
 
 u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
@@ -343,9 +363,9 @@ void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
 	int r;
 
 	vcpu->in_hype = false;
-	// r = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, 11, false);
 
 	new_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	rr_disable_counters(vcpu);
 
 	printk(KERN_WARNING "==== Finished Hype ====\n");
 	printk(KERN_WARNING "final cnt=%llu\n", new_cnt);
@@ -1231,16 +1251,12 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
 #ifdef CONFIG_X86_64
 	bool pcid_enabled = kvm_read_cr4_bits(vcpu, X86_CR4_PCIDE);
 
-	printk("set cr3: 0x%lx\n", cr3);
-
 	if (pcid_enabled) {
 		skip_tlb_flush = cr3 & X86_CR3_PCID_NOFLUSH;
 		cr3 &= ~X86_CR3_PCID_NOFLUSH;
 		pcid = cr3 & X86_CR3_PCID_MASK;
 	}
 #endif
-
-	printk("cr3 after processed: 0x%lx\n", cr3);
 
 	/* PDPTRs are always reloaded for PAE paging. */
 	if (cr3 == kvm_read_cr3(vcpu) && !is_pae_paging(vcpu))
@@ -9614,8 +9630,6 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
 			
 			if (rr_in_record()) {
-				if (intr == 33)
-					printk(KERN_INFO "injecting interrupt %d\n", intr);
 				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, intr, 1));
 				vcpu->int_injected++;
 			}

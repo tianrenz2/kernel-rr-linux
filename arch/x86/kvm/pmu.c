@@ -110,6 +110,9 @@ static void pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type,
 		.config = config,
 	};
 
+	printk(KERN_INFO "counter: exclude_kernel=%d, exclude_user=%d\n",
+		   exclude_kernel, exclude_user);
+
 	if (type == PERF_TYPE_HARDWARE && config >= PERF_COUNT_HW_MAX)
 		return;
 
