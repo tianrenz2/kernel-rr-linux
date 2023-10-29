@@ -59,13 +59,13 @@ rr_random *random_cur = NULL;
 
 // == with hypercall
 const unsigned long syscall_addr = 0xffffffff81800000; // info addr entry_SYSCALL_64
-const unsigned long pf_excep_addr = 0xffffffff81700a20; // info addr exc_page_fault
+const unsigned long pf_excep_addr = 0xffffffff81741960; // info addr exc_page_fault
 const unsigned long copy_from_iter_addr = 0xffffffff8144af0d; // lib/iov_iter.c:186
 const unsigned long copy_from_user_addr = 0xffffffff814528e7; // lib/usercopy.c:21
 const unsigned long copy_page_from_iter_addr = 0xffffffff8144dd7e;
 const unsigned long strncpy_addr = 0xffffffff81483732; // lib/strncpy_from_user.c:141
 const unsigned long get_user_addr = 0xffffffff816c2220; // arch/x86/lib/getuser.S:103
-const unsigned long strnlen_user_addr = 0xffffffff814458d2; // lib/strnlen_user.c:115
+const unsigned long strnlen_user_addr = 0xffffffff8146bb66; // lib/strnlen_user.c:115
 
 const unsigned long random_bytes_addr_start = 0xffffffff81533660; // b _get_random_bytes
 const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/char/random.c:382
@@ -323,7 +323,9 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     lapic_log *lapic = (lapic_log *)opaque;
     unsigned long rip;
 
-	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
+    WARN_ON(is_guest_mode(vcpu));
+
+    regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
     int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
 
@@ -334,12 +336,6 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     event_log->next = NULL;
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
-
-    // printk(KERN_INFO "Interrupt number=%d\n", lapic->vector);
-
-    // if (rr_event_log_tail != NULL && rr_event_log_tail->inst_cnt == event_log->inst_cnt) {
-    //     return;
-    // }
 
     if (rr_post_handle_event(vcpu, event_log))
         rr_insert_event_log(event_log);
