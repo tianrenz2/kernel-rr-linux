@@ -5774,7 +5774,12 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = kvm_vcpu_ioctl_device_attr(vcpu, ioctl, argp);
 		break;
 	case KVM_START_RECORD: {
-		printk(KERN_INFO "Start recording guest\n");
+		struct rr_record_data record_data;
+		copy_from_user(&record_data, argp, sizeof(record_data));
+		
+		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
+
+		rr_register_ivshmem(record_data.shm_base_addr);
 		rr_set_in_record(vcpu, 1);
 		break;
 	}
@@ -5784,7 +5789,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_START_REPLAY: {
-		printk(KERN_INFO "Start replaying guest\n");
 		rr_set_in_replay(vcpu, 1);
 		break;
 	}
@@ -9651,7 +9655,7 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
 			
 			if (rr_in_record()) {
-				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, create_lapic_log(1, intr, 1));
+				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, &intr);
 				vcpu->int_injected++;
 			}
 		}

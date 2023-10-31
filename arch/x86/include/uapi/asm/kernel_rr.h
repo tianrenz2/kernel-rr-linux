@@ -13,6 +13,7 @@
 #define EVENT_TYPE_DMA_DONE  7
 #define EVENT_TYPE_GFU       8
 
+#define CFU_BUFFER_SIZE     4096
 
 enum REGS {
     ZERO,
@@ -51,7 +52,7 @@ typedef struct {
     unsigned long dest_addr;
     unsigned long len;
     unsigned long rdx;
-    u8 data[4096];
+    u8 data[CFU_BUFFER_SIZE];
 } rr_cfu;
 
 typedef struct {
@@ -59,7 +60,9 @@ typedef struct {
 } rr_gfu;
 
 typedef struct {
-    lapic_log lapic;
+    int vector;
+    unsigned long rip;
+    unsigned long ecx;
 } rr_interrupt;
 
 typedef struct {
@@ -111,5 +114,34 @@ typedef struct rr_event_list_t {
 struct rr_event_info {
     int event_number;
 };
+
+struct rr_record_data {
+    unsigned long shm_base_addr;
+};
+
+typedef struct rr_event_guest_queue_header_t {
+    unsigned int current_pos;
+    unsigned int total_pos;
+    unsigned int header_size;
+    unsigned int entry_size;
+    unsigned int rr_enabled;
+} rr_event_guest_queue_header;
+
+
+typedef struct rr_event_log_guest_t {
+    int type;
+    int id;
+    union {
+        rr_interrupt interrupt;
+        rr_exception exception;
+        rr_syscall  syscall;
+        rr_io_input io_input;
+        rr_cfu cfu;
+        rr_random rand;
+        rr_gfu gfu;
+    } event;
+    unsigned long inst_cnt;
+    unsigned long rip;
+} rr_event_log_guest;
 
 #endif
