@@ -88,6 +88,11 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
     }
     event_log->id = header.current_pos;
 
+    if (header.current_pos == header.total_pos - 1) {
+        printk(KERN_WARNING "Shared memory is full\n");
+        return;
+    }
+
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.header_size + \
         header.current_pos * header.entry_size),
         event_log, sizeof(rr_event_log_guest))) {
