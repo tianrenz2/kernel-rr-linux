@@ -5881,6 +5881,22 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 
+	case KVM_RR_GET_INST_CNT: {
+		int r;
+		unsigned long cnt;
+		unsigned long __user *inst_cnt = argp;
+
+		r = -EFAULT;
+
+		cnt = kvm_get_inst_cnt(vcpu);
+
+		if (copy_to_user(inst_cnt, &cnt, sizeof(unsigned long)))
+			goto out;
+
+		r = 0;
+		break;
+	}
+
 
 	default:
 		printk(KERN_WARNING "Invalid type %lu\n", ioctl);
@@ -8762,7 +8778,9 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	emulator_pio_in(vcpu, vcpu->arch.pio.size, vcpu->arch.pio.port, &val, 1);
 	kvm_rax_write(vcpu, val);
 
-	// printk(KERN_INFO "fast_pio: %lu\n", val);
+	// if(rr_in_record())
+	// 	printk(KERN_INFO "fast_pio: %lu\n", val);
+
 	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
 		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
 	}
@@ -10474,21 +10492,21 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
 
-	if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
-		if (rr_in_record()) {
-			uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);
-			unsigned long rip = kvm_get_linear_rip(vcpu);
-			// if (inst_cnt == vcpu->last_inst_cnt) {
-			// 	printk(KERN_WARNING "repeatitive inst cnt\n");
-			// }
-			// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
+	// if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
+	// 	if (rr_in_record()) {
+	// 		uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);
+	// 		unsigned long rip = kvm_get_linear_rip(vcpu);
+	// 		// if (inst_cnt == vcpu->last_inst_cnt) {
+	// 		// 	printk(KERN_WARNING "repeatitive inst cnt\n");
+	// 		// }
+	// 		// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
 
-			vcpu->last_rip = rip;
-			vcpu->last_inst_cnt = inst_cnt;
+	// 		vcpu->last_rip = rip;
+	// 		vcpu->last_inst_cnt = inst_cnt;
 
-			rr_handle_breakpoint(vcpu);
-		}
-	}
+	// 		rr_handle_breakpoint(vcpu);
+	// 	}
+	// }
 
 	return r;
 

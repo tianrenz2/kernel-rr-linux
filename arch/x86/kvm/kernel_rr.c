@@ -118,7 +118,8 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.event.io_input.value = *io_val;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
-
+    
+    // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     rr_append_to_queue(&event);
 }
 
@@ -129,10 +130,13 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
         .type = EVENT_TYPE_INTERRUPT
     };
 
+    WARN_ON(is_guest_mode(vcpu));
+
     event.event.interrupt.vector = *int_vector;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
 
+    // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
     rr_append_to_queue(&event);
 }
 
@@ -143,10 +147,11 @@ static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
         .type = EVENT_TYPE_RDTSC
     };
 
-    event.event.io_input.value = tsc_val;
+    event.event.io_input.value = *tsc_val;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
-
+    
+    // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     rr_append_to_queue(&event);
 }
 
@@ -646,33 +651,30 @@ void handle_hypercall_random(struct kvm_vcpu *vcpu,
                              unsigned long buf,
                              unsigned long len)
 {
-    rr_event_log *event_log;
-    rr_random *rand_log;
+    rr_event_log_guest event_log = {
+        .type = EVENT_TYPE_RANDOM
+    };
     struct x86_emulate_ctxt *emulate_ctxt;
     int ret = 0;
 
-    rand_log = kmalloc(sizeof(rr_random), GFP_KERNEL);
+    event_log.event.rand.buf = buf;
+    event_log.event.rand.len = len;
 
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    
-    event_log->type = EVENT_TYPE_RANDOM;
-
-    rand_log->buf = buf;
-    rand_log->len = len;
+    event_log.inst_cnt = kvm_get_inst_cnt(vcpu);
 
     emulate_ctxt = vcpu->arch.emulate_ctxt;
 
     ret = emulate_ctxt->ops->read_emulated(vcpu->arch.emulate_ctxt,
-                                        rand_log->buf, rand_log->data, rand_log->len,
-                                        &emulate_ctxt->exception);
+                                           event_log.event.rand.buf,
+                                           event_log.event.rand.data,
+                                           event_log.event.rand.len,
+                                           &emulate_ctxt->exception);
     if (ret != X86EMUL_CONTINUE) {
         printk(KERN_WARNING "Failed to read addr 0x%lx, ret %d\n",
-            rand_log->buf, ret);
+               event_log.event.rand.buf, ret);
     }
 
-    event_log->event.rand = *rand_log;
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
+    rr_append_to_queue(&event_log);
 }
 
 void handle_hypercall_cfu(struct kvm_vcpu *vcpu,
@@ -1054,7 +1056,8 @@ void rr_register_ivshmem(unsigned long addr)
         printk(KERN_WARNING "Failed to read from user memory\n");
     }
 
-    printk(KERN_WARNING "Header info: total_pos=%u, rr_endabled=%u\n", header.total_pos, header.rr_enabled);
+    printk(KERN_WARNING "Header info: total_pos=%u, cur_pos=%u, rr_endabled=%u\n",
+           header.total_pos, header.current_pos, header.rr_enabled);
 }
 
 EXPORT_SYMBOL_GPL(rr_handle_breakpoint);
