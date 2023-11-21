@@ -286,14 +286,6 @@ rr_mem_access_log rr_get_next_mem_log(void)
 
 static int rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
 {
-    // uint64_t cur_inst = kvm_get_inst_cnt(vcpu);
-
-    // if (!cur_inst) {
-    //     event->inst_cnt = 0;
-    // } else {
-    //     event->inst_cnt = cur_inst - vcpu->rr_start_point - 1;
-    // }
-    
     unsigned long cnt = kvm_get_inst_cnt(vcpu) - vcpu->rr_start_point;
 
     if (rr_event_cur != NULL && cnt == rr_event_cur->inst_cnt) {
@@ -318,6 +310,7 @@ static void rr_insert_event_log(rr_event_log *event)
     rr_event_log_tail->next = NULL;
 }
 
+// Deprecated: old way of recording exception
 static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
 {
     struct kvm_regs *regs;
@@ -352,7 +345,7 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
         rr_insert_event_log(event_log);
 }
 
-
+// Deprecated: old way of recording syscall
 static void handle_event_syscall(struct kvm_vcpu *vcpu, void *opaque)
 {
     struct kvm_regs *regs;
@@ -422,6 +415,7 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
         printk(KERN_INFO "Failed to append int %d\n", event_log->event.interrupt.vector);
 }
 
+// Deprecated: old way of recording cfu
 static void handle_event_cfu(struct kvm_vcpu *vcpu, void *opaque)
 {
 
@@ -902,18 +896,6 @@ void clear_events(void)
 void rr_clear_mem_log(void)
 {
     if (rr_mem_log_head != NULL) {
-        // rr_mem_access_log *pre_event = rr_mem_log_head;
-        // rr_mem_access_log *event;
-
-        // printk("Freeing mem log\n");
-
-        // while (pre_event != NULL) {
-        //     event = pre_event->next;
-        //     kfree(pre_event);
-        //     pre_event = event;
-        //     printk("Free mem log: %p\n", pre_event);
-        // }
-
         rr_mem_log_head = NULL;
         rr_mem_log_tail = NULL;
         rr_mem_log_cur = NULL;
