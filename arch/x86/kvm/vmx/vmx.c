@@ -4860,8 +4860,10 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 		return 1;
 	}
 
-	if (is_invalid_opcode(intr_info))
+	if (is_invalid_opcode(intr_info)) {
+		printk(KERN_WARNING "Intr info %u", intr_info);
 		return handle_ud(vcpu);
+	}
 
 	error_code = 0;
 	if (intr_info & INTR_INFO_DELIVER_CODE_MASK)
@@ -6034,6 +6036,26 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 		       vmcs_read16(VIRTUAL_PROCESSOR_ID));
 }
 
+static void check_kernel_serialize(struct kvm_vcpu *me)
+{
+	struct kvm *kvm = me->kvm;
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (vcpu == me)
+			continue;
+
+		if (!is_guest_mode(vcpu))
+			continue;
+
+		if (vmx_get_cpl(vcpu) == 0) {
+			printk(KERN_WARNING "Detected unexpected running vcpu in kernel mode");
+		}
+	}
+}
+
+
 /*
  * The guest has exited.  See if we can fix it or if we need userspace
  * assistance.
@@ -6044,6 +6066,11 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	union vmx_exit_reason exit_reason = vmx->exit_reason;
 	u32 vectoring_info = vmx->idt_vectoring_info;
 	u16 exit_handler_index;
+
+	// if (rr_in_record()) {
+	if (vmx_get_cpl(vcpu) == 0)
+		check_kernel_serialize(vcpu);
+	// }
 
 	/*
 	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more

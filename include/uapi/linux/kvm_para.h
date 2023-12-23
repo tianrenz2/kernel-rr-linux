@@ -35,6 +35,10 @@
 #define KVM_HC_RR_RANDOM			15
 #define KVM_HC_RR_GETUSER			16
 
+#define KVM_HC_ENTER_KERNEL		17
+#define KVM_HC_EXIT_KERNEL		18
+#define KVM_HC_EXIT_IDLE        19
+
 /*
  * hypercalls use architecture specific
  */

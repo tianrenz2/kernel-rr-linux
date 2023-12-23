@@ -375,6 +375,10 @@ struct kvm_vcpu {
 
 	unsigned long last_rip;
 	uint64_t last_inst_cnt;
+	bool in_kernel;
+	bool rr_in_spin_loop;
+	bool overflowed;
+	uint64_t executed_inst;
 };
 
 /*

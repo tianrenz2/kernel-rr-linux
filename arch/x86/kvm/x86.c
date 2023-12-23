@@ -310,6 +310,7 @@ static struct kmem_cache *x86_emulator_cache;
 bool handled_hype = false;
 
 u64 inst_cnt = 0;
+const u16 round_inst_number = 10000;
 
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated);
@@ -331,9 +332,22 @@ static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
 }
 
+
+static void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu)
+{
+	int r0;
+
+	unsigned long initial = 0xffffffffffff - round_inst_number;
+
+	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, initial, false);
+	if (r0 != 0) {
+		printk(KERN_WARNING "Failed to set initial counter\n");
+	}
+}
+
 static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 {
-	int r0, r1, r2;
+	int r1, r2;
 	u64 global_ctrl, gp_ctrl = 0;
 
 	global_ctrl |= (1ULL << 0);
@@ -350,10 +364,12 @@ static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 		gp_ctrl |= ARCH_PERFMON_EVENTSEL_USR;
 
 	// Setting up MSRs for performance counting.
-	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, 0, false);
+	rr_reset_gp_inst_counter(vcpu);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
 	r2 = __kvm_set_msr(vcpu, MSR_P6_EVNTSEL0, gp_ctrl, false);
+	vcpu->overflowed = false;
 }
+
 
 static void rr_disable_counters(struct kvm_vcpu *vcpu)
 {
@@ -374,7 +390,9 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 
 u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 {
-	return kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	u64 cur = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+
+	return vcpu->executed_inst + (cur + round_inst_number) - 0xffffffffffff;
 }
 
 
@@ -775,6 +793,8 @@ static void kvm_multiple_exception(struct kvm_vcpu *vcpu,
 
 void kvm_queue_exception(struct kvm_vcpu *vcpu, unsigned nr)
 {
+	printk(KERN_WARNING "queued exception %d", nr);
+	dump_stack();
 	kvm_multiple_exception(vcpu, nr, false, 0, false, 0, false);
 }
 EXPORT_SYMBOL_GPL(kvm_queue_exception);
@@ -7148,6 +7168,7 @@ int handle_ud(struct kvm_vcpu *vcpu)
 	if (unlikely(!kvm_can_emulate_insn(vcpu, emul_type, NULL, 0)))
 		return 1;
 
+	printk(KERN_INFO "UD Addr 0x%lx", kvm_get_linear_rip(vcpu));
 	if (force_emulation_prefix &&
 	    kvm_read_guest_virt(vcpu, kvm_get_linear_rip(vcpu),
 				sig, sizeof(sig), &e) == 0 &&
@@ -8386,8 +8407,6 @@ static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *kvm_run = vcpu->run;
 
-	printk(KERN_INFO "[kvm_vcpu_do_singlestep]\n");
-
 	if (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP) {
 		kvm_run->debug.arch.dr6 = DR6_BS | DR6_ACTIVE_LOW;
 		kvm_run->debug.arch.pc = kvm_get_linear_rip(vcpu);
@@ -9451,6 +9470,24 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = 0;
 		return kvm_skip_emulated_instruction(vcpu);
 	}
+	case KVM_HC_ENTER_KERNEL: {
+		if (rr_in_record())
+			vcpu->run->exit_reason = KVM_EXIT_ENTER_KERNEL;
+
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+	case KVM_HC_EXIT_KERNEL: {
+		if (rr_in_record())
+			vcpu->run->exit_reason = KVM_EXIT_EXIT_KERNEL;
+
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+	case KVM_HC_EXIT_IDLE: {
+		if (rr_in_record())
+			vcpu->run->exit_reason = KVM_EXIT_EXIT_IDLE_LOOP;
+
+		return kvm_skip_emulated_instruction(vcpu);
+	}
 	default:
 		ret = -KVM_ENOSYS;
 		break;
@@ -10377,6 +10414,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	guest_timing_enter_irqoff();
 
+	if (rr_in_record())
+		rr_acquire_exec(vcpu);
+
 	for (;;) {
 		/*
 		 * Assert that vCPU vs. VM APICv state is consistent.  An APICv
@@ -10492,6 +10532,37 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
 
+	if (rr_in_record()) {
+		if (vcpu->rr_in_spin_loop) {
+			vcpu->rr_in_spin_loop = false;
+			vcpu->run->exit_reason = KVM_EXIT_SPIN_LOOP;
+			rr_release_exec(vcpu);
+			// return 0;
+		}
+
+		if (vcpu->overflowed) {
+			vcpu->overflowed = false;
+			vcpu->run->exit_reason = KVM_EXIT_PMU_OVERFLOWED;
+			rr_reset_gp_inst_counter(vcpu);
+			vcpu->executed_inst += round_inst_number;
+			rr_release_exec(vcpu);
+			// return 0;
+		}
+
+		if (vcpu->run->exit_reason == KVM_EXIT_ENTER_KERNEL || \
+			vcpu->run->exit_reason == KVM_EXIT_EXIT_KERNEL || \
+			vcpu->run->exit_reason == KVM_EXIT_EXIT_IDLE_LOOP)
+			rr_release_exec(vcpu);
+			// return 0;
+	}
+
+	if (rr_in_record()) {
+		if (vcpu->run->exit_reason == KVM_EXIT_HLT || vcpu->arch.mp_state == KVM_MP_STATE_HALTED) {
+			vcpu->run->exit_reason = KVM_EXIT_HLT;
+			rr_release_exec(vcpu);
+			// return 0;
+		}
+	}
 	// if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
 	// 	if (rr_in_record()) {
 	// 		uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);

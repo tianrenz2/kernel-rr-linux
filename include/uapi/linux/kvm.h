@@ -271,6 +271,11 @@ struct kvm_xen_exit {
 #define KVM_EXIT_X86_BUS_LOCK     33
 #define KVM_EXIT_XEN              34
 #define KVM_EXIT_RISCV_SBI        35
+#define KVM_EXIT_SPIN_LOOP        36
+#define KVM_EXIT_ENTER_KERNEL     38
+#define KVM_EXIT_EXIT_KERNEL      39
+#define KVM_EXIT_PMU_OVERFLOWED   40
+#define KVM_EXIT_EXIT_IDLE_LOOP   41
 
 /* For KVM_EXIT_INTERNAL_ERROR */
 /* Emulate instruction failed. */

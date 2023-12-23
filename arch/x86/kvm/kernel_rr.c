@@ -2,6 +2,8 @@
 #include <asm/segment.h>
 #include <asm/uaccess.h>
 #include <linux/buffer_head.h>
+#include <linux/wait.h>
+#include <linux/sched.h>
 
 #include "x86.h"
 #include "kvm_cache_regs.h"
@@ -77,11 +79,73 @@ const unsigned long uaccess_begin = 0xffffffff811e084c;
 
 static unsigned long ivshmem_base_addr = 0;
 
+// Structure to hold condition variable state
+typedef struct {
+    int current_vcpu;
+    wait_queue_head_t wait_queue;
+    spinlock_t lock;
+} rr_condition;
+
+
+static rr_condition *exec_lock = NULL;
+
+// Initialize the condition variable
+static void init_rr_condition(rr_condition *cv) {
+    cv->current_vcpu = 0;
+    init_waitqueue_head(&cv->wait_queue);
+    spin_lock_init(&cv->lock);
+}
+
+// Wait operation
+static void rr_condition_wait(struct kvm_vcpu *vcpu, rr_condition *cv) {
+    spin_lock(&cv->lock);
+    while (cv->current_vcpu != 0 && cv->current_vcpu != vcpu->vcpu_id) {
+        // Release the lock and sleep on the wait queue
+        DEFINE_WAIT(wait);
+        prepare_to_wait(&cv->wait_queue, &wait, TASK_INTERRUPTIBLE);
+        spin_unlock(&cv->lock);
+        
+        schedule(); // Put the current thread to sleep
+        
+        spin_lock(&cv->lock);
+        // Reacquire the lock after waking up
+        finish_wait(&cv->wait_queue, &wait);
+    }
+    // Condition is met, continue execution
+    cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
+    spin_unlock(&cv->lock);
+}
+
+// Signal operation
+static void rr_condition_signal(struct kvm_vcpu *vcpu, rr_condition *cv) {
+    spin_lock(&cv->lock);
+    if (cv->current_vcpu == vcpu->vcpu_id) {
+        cv->current_vcpu = 0; // Set the condition to signal
+
+        if (waitqueue_active(&cv->wait_queue))
+            wake_up(&cv->wait_queue); // Wake up one waiting thread
+    }
+    spin_unlock(&cv->lock);
+}
+
+// // Broadcast operation
+// static void rr_condition_broadcast(rr_condition *cv) {
+//     spin_lock(&cv->lock);
+//     cv->current_vcpu = 1; // Set the condition to signal
+//     wake_up_all(&cv->wait_queue); // Wake up all waiting threads
+//     spin_unlock(&cv->lock);
+// }
+
+
+
 /* ======== RR shared memory functions =========== */
 
 static void rr_append_to_queue(rr_event_log_guest *event_log)
 {
     rr_event_guest_queue_header header;
+
+    if (!ivshmem_base_addr)
+        return;
 
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");
@@ -111,6 +175,9 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
 
 static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
+    if (!ivshmem_base_addr)
+        return;
+
     unsigned long *io_val = (unsigned long *)opaque;
     rr_event_log_guest event = {
         .type = EVENT_TYPE_IO_IN
@@ -125,6 +192,9 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
 
 static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
+    if (!ivshmem_base_addr)
+        return;
+
     unsigned int *int_vector = (unsigned int *)opaque;
     rr_event_log_guest event = {
         .type = EVENT_TYPE_INTERRUPT
@@ -142,6 +212,9 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
+    if (!ivshmem_base_addr)
+        return;
+
     unsigned long *tsc_val = (unsigned long *)opaque;    
     rr_event_log_guest event = {
         .type = EVENT_TYPE_RDTSC
@@ -845,10 +918,10 @@ static void report_record_stat(void)
 
 void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 {
-    if (record == in_record) {
-        printk(KERN_WARNING "Skip because it's record status is already %d\n", record);
-        return;
-    }
+    // if (record == in_record) {
+    //     printk(KERN_WARNING "Skip because it's record status is already %d\n", record);
+    //     return;
+    // }
 
     in_record = record;
 
@@ -862,6 +935,11 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
+        if (exec_lock != NULL) {
+            kfree(exec_lock);
+            exec_lock = NULL;
+        }
+
     } else {
         total_event_cnt = 0;
 
@@ -869,6 +947,11 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
         vcpu->int_injected = 0;
+
+        if (exec_lock == NULL) {
+            exec_lock = kmalloc(sizeof(rr_condition), GFP_KERNEL);
+            init_rr_condition(exec_lock);
+        }
     }
 
     rr_clear_mem_log();
@@ -991,9 +1074,32 @@ void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
     }
 }
 
+void rr_acquire_exec(struct kvm_vcpu *vcpu)
+{
+    printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
+    rr_condition_wait(vcpu, exec_lock);
+}
+
+void rr_release_exec(struct kvm_vcpu *vcpu)
+{
+    printk(KERN_INFO "[%d] Released lock\n", vcpu->vcpu_id);
+    rr_condition_signal(vcpu, exec_lock);
+}
+
+int inst = 0;
+
+static void rr_enter_kernel(struct kvm_vcpu *vcpu, unsigned long addr)
+{
+}
+
+static void rr_exit_kernel(struct kvm_vcpu *vcpu)
+{
+}
+
 int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
 {
     unsigned long addr;
+    int ret = 0;
 
     if (!rr_in_record()) {
         return 0;
@@ -1001,31 +1107,44 @@ int rr_handle_breakpoint(struct kvm_vcpu *vcpu)
 
     addr = kvm_get_linear_rip(vcpu);
 
-    // printk(KERN_INFO "breakpoint addr 0x%lx\n", addr);
-
     switch(addr) {
-        case syscall_addr:
-            rr_record_event(vcpu, EVENT_TYPE_SYSCALL, NULL);
+        case KERNEL_ENTRY_INTR:
+            // printk(KERN_INFO "handle entry breakpoint: 0x%lx\n", addr);
+            rr_enter_kernel(vcpu, addr);
+            ret = 1;
             break;
-        case pf_excep_addr:
-            rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
+        case KERNEL_EXIT_INTR:
+            rr_exit_kernel(vcpu);
+            ret = 1;
             break;
-        case copy_from_iter_addr:
-        case copy_from_user_addr:
-        case strncpy_addr:
-        case get_user_addr:
-        case strnlen_user_addr:
-        case copy_page_from_iter_addr:
-            rr_record_event(vcpu, EVENT_TYPE_CFU, &addr);
-            break;
-        case random_bytes_addr_start:
-        case random_bytes_addr_end:
-            rr_record_event(vcpu, EVENT_TYPE_RANDOM, NULL);
+        // case syscall_addr:
+        //     rr_record_event(vcpu, EVENT_TYPE_SYSCALL, NULL);
+        //     break;
+        // case pf_excep_addr:
+        //     rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, new_rr_exception(PF_VECTOR, 0, 0));
+        //     break;
+        // case copy_from_iter_addr:
+        // case copy_from_user_addr:
+        // case strncpy_addr:
+        // case get_user_addr:
+        // case strnlen_user_addr:
+        // case copy_page_from_iter_addr:
+        //     rr_record_event(vcpu, EVENT_TYPE_CFU, &addr);
+        //     break;
+        // case random_bytes_addr_start:
+        // case random_bytes_addr_end:
+        //     rr_record_event(vcpu, EVENT_TYPE_RANDOM, NULL);
         default:
             break;
+        //     if (vcpu->in_kernel) {
+        //         ret = 1;
+        //         rr_in_kernel_step(vcpu, addr);
+        //         // rr_do_singlestep(vcpu);
+        //     }
+            // break;
     }
 
-    return 0;
+    return ret;
 }
 
 void rr_register_ivshmem(unsigned long addr)
@@ -1033,6 +1152,9 @@ void rr_register_ivshmem(unsigned long addr)
     rr_event_guest_queue_header header;
 
     ivshmem_base_addr = addr;
+
+    if (!ivshmem_base_addr)
+        return;
 
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");

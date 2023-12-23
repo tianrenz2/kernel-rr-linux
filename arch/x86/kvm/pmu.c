@@ -65,6 +65,8 @@ static inline void __kvm_perf_overflow(struct kvm_pmc *pmc, bool in_pmi)
 	if (test_and_set_bit(pmc->idx, pmu->reprogram_pmi))
 		return;
 
+	pmc->vcpu->overflowed = true;
+
 	__set_bit(pmc->idx, (unsigned long *)&pmu->global_status);
 	kvm_make_request(KVM_REQ_PMU, pmc->vcpu);
 
