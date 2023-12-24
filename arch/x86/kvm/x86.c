@@ -310,7 +310,7 @@ static struct kmem_cache *x86_emulator_cache;
 bool handled_hype = false;
 
 u64 inst_cnt = 0;
-const u16 round_inst_number = 10000;
+const u16 round_inst_number = 50000;
 
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated);
@@ -6763,6 +6763,9 @@ set_pit2_out:
 	case KVM_X86_SET_MSR_FILTER:
 		r = kvm_vm_ioctl_set_msr_filter(kvm, argp);
 		break;
+	case KVM_END_RECORD:
+		rr_set_in_record_all(kvm, 0);
+		break;
 	default:
 		r = -ENOTTY;
 	}
@@ -10340,6 +10343,9 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
+	if (rr_in_record())
+		rr_acquire_exec(vcpu);
+
 	preempt_disable();
 
 	static_call(kvm_x86_prepare_guest_switch)(vcpu);
@@ -10414,8 +10420,6 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	guest_timing_enter_irqoff();
 
-	if (rr_in_record())
-		rr_acquire_exec(vcpu);
 
 	for (;;) {
 		/*
@@ -10533,12 +10537,6 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
 
 	if (rr_in_record()) {
-		if (vcpu->rr_in_spin_loop) {
-			vcpu->rr_in_spin_loop = false;
-			vcpu->run->exit_reason = KVM_EXIT_SPIN_LOOP;
-			rr_release_exec(vcpu);
-			// return 0;
-		}
 
 		if (vcpu->overflowed) {
 			vcpu->overflowed = false;
@@ -10548,17 +10546,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			rr_release_exec(vcpu);
 			// return 0;
 		}
-
-		if (vcpu->run->exit_reason == KVM_EXIT_ENTER_KERNEL || \
-			vcpu->run->exit_reason == KVM_EXIT_EXIT_KERNEL || \
-			vcpu->run->exit_reason == KVM_EXIT_EXIT_IDLE_LOOP)
-			rr_release_exec(vcpu);
-			// return 0;
 	}
 
 	if (rr_in_record()) {
 		if (vcpu->run->exit_reason == KVM_EXIT_HLT || vcpu->arch.mp_state == KVM_MP_STATE_HALTED) {
-			vcpu->run->exit_reason = KVM_EXIT_HLT;
+			// vcpu->run->exit_reason = KVM_EXIT_HLT;
 			rr_release_exec(vcpu);
 			// return 0;
 		}
@@ -10595,6 +10587,9 @@ out:
 static inline int vcpu_block(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	bool hv_timer;
+
+	if(rr_in_record())
+		rr_release_exec(vcpu);
 
 	if (!kvm_arch_vcpu_runnable(vcpu)) {
 		/*

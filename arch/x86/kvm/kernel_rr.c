@@ -91,7 +91,7 @@ static rr_condition *exec_lock = NULL;
 
 // Initialize the condition variable
 static void init_rr_condition(rr_condition *cv) {
-    cv->current_vcpu = 0;
+    cv->current_vcpu = -1;
     init_waitqueue_head(&cv->wait_queue);
     spin_lock_init(&cv->lock);
 }
@@ -99,20 +99,30 @@ static void init_rr_condition(rr_condition *cv) {
 // Wait operation
 static void rr_condition_wait(struct kvm_vcpu *vcpu, rr_condition *cv) {
     spin_lock(&cv->lock);
-    while (cv->current_vcpu != 0 && cv->current_vcpu != vcpu->vcpu_id) {
+
+    if (cv->current_vcpu == vcpu->vcpu_id)
+        goto out;
+
+    while (rr_in_record() && cv->current_vcpu >= 0 && cv->current_vcpu != vcpu->vcpu_id) {
         // Release the lock and sleep on the wait queue
         DEFINE_WAIT(wait);
         prepare_to_wait(&cv->wait_queue, &wait, TASK_INTERRUPTIBLE);
         spin_unlock(&cv->lock);
-        
+        // printk(KERN_INFO "[%d] Start waiting", vcpu->vcpu_id);
         schedule(); // Put the current thread to sleep
         
         spin_lock(&cv->lock);
         // Reacquire the lock after waking up
         finish_wait(&cv->wait_queue, &wait);
     }
+
+    // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
+    vcpu->acquired++;
     // Condition is met, continue execution
-    cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
+    if (cv->current_vcpu == -1)
+        cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
+
+out:
     spin_unlock(&cv->lock);
 }
 
@@ -120,7 +130,9 @@ static void rr_condition_wait(struct kvm_vcpu *vcpu, rr_condition *cv) {
 static void rr_condition_signal(struct kvm_vcpu *vcpu, rr_condition *cv) {
     spin_lock(&cv->lock);
     if (cv->current_vcpu == vcpu->vcpu_id) {
-        cv->current_vcpu = 0; // Set the condition to signal
+        cv->current_vcpu = -1; // Set the condition to signal
+
+        // printk(KERN_INFO "[%d] Released lock\n", vcpu->vcpu_id);
 
         if (waitqueue_active(&cv->wait_queue))
             wake_up(&cv->wait_queue); // Wake up one waiting thread
@@ -129,12 +141,12 @@ static void rr_condition_signal(struct kvm_vcpu *vcpu, rr_condition *cv) {
 }
 
 // // Broadcast operation
-// static void rr_condition_broadcast(rr_condition *cv) {
-//     spin_lock(&cv->lock);
-//     cv->current_vcpu = 1; // Set the condition to signal
-//     wake_up_all(&cv->wait_queue); // Wake up all waiting threads
-//     spin_unlock(&cv->lock);
-// }
+static void rr_condition_finish(rr_condition *cv) {
+    spin_lock(&cv->lock);
+    cv->current_vcpu = -2; // Set the condition to signal
+    wake_up_all(&cv->wait_queue); // Wake up all waiting threads
+    spin_unlock(&cv->lock);
+}
 
 
 
@@ -916,6 +928,16 @@ static void report_record_stat(void)
             event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done, event_gfu);
 }
 
+void rr_set_in_record_all(struct kvm *kvm, int record)
+{
+    unsigned long i;
+    struct kvm_vcpu *vcpu;
+
+    kvm_for_each_vcpu(i, vcpu, kvm) {
+        rr_set_in_record(vcpu, record);
+    }
+}
+
 void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 {
     // if (record == in_record) {
@@ -935,11 +957,8 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
-        if (exec_lock != NULL) {
-            kfree(exec_lock);
-            exec_lock = NULL;
-        }
-
+        printk(KERN_INFO "Finish RR record");
+        rr_condition_finish(exec_lock);
     } else {
         total_event_cnt = 0;
 
@@ -1076,13 +1095,11 @@ void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
 
 void rr_acquire_exec(struct kvm_vcpu *vcpu)
 {
-    printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
     rr_condition_wait(vcpu, exec_lock);
 }
 
 void rr_release_exec(struct kvm_vcpu *vcpu)
 {
-    printk(KERN_INFO "[%d] Released lock\n", vcpu->vcpu_id);
     rr_condition_signal(vcpu, exec_lock);
 }
 

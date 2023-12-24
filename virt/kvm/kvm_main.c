@@ -3633,7 +3633,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me, bool yield_to_kernel_mode)
 	}
 
 	if(!yielded && rr_in_record()) {
-		me->rr_in_spin_loop = true;
+		rr_release_exec(me);
 	}
 
 	kvm_vcpu_set_in_spin_loop(me, false);

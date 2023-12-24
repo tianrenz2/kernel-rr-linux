@@ -59,4 +59,5 @@ void rr_register_ivshmem(unsigned long addr);
 
 void rr_acquire_exec(struct kvm_vcpu *vcpu);
 void rr_release_exec(struct kvm_vcpu *vcpu);
+void rr_set_in_record_all(struct kvm *kvm, int record);
 #endif /* __KVM_X86_KERNEL_RR_H */

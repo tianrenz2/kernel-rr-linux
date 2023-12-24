@@ -379,6 +379,7 @@ struct kvm_vcpu {
 	bool rr_in_spin_loop;
 	bool overflowed;
 	uint64_t executed_inst;
+	int acquired;
 };
 
 /*
