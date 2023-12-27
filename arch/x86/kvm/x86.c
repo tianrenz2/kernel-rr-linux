@@ -398,20 +398,14 @@ u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 
 void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
 {
-	u64 new_cnt;
-	int r;
-
 	vcpu->in_hype = false;
 
-	new_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	inst_cnt = kvm_get_inst_cnt(vcpu);
 	rr_disable_counters(vcpu);
 
 	printk(KERN_WARNING "==== Finished Hype ====\n");
-	printk(KERN_WARNING "final cnt=%llu\n", new_cnt);
 
-	inst_cnt = new_cnt - vcpu->rr_start_point;
-
-	printk(KERN_WARNING "delta inst cnt=%llu\n", inst_cnt);
+	printk(KERN_WARNING "[vcpu %d]Executed inst cnt=%llu\n", vcpu->vcpu_id, inst_cnt);
 }
 
 
@@ -7171,7 +7165,6 @@ int handle_ud(struct kvm_vcpu *vcpu)
 	if (unlikely(!kvm_can_emulate_insn(vcpu, emul_type, NULL, 0)))
 		return 1;
 
-	printk(KERN_INFO "UD Addr 0x%lx", kvm_get_linear_rip(vcpu));
 	if (force_emulation_prefix &&
 	    kvm_read_guest_virt(vcpu, kvm_get_linear_rip(vcpu),
 				sig, sizeof(sig), &e) == 0 &&
@@ -9474,14 +9467,19 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 	case KVM_HC_ENTER_KERNEL: {
-		if (rr_in_record())
+		if (rr_in_record()) {
 			vcpu->run->exit_reason = KVM_EXIT_ENTER_KERNEL;
+			vcpu->to_acquire = true;
+		}
 
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 	case KVM_HC_EXIT_KERNEL: {
-		if (rr_in_record())
+		if (rr_in_record()) {
 			vcpu->run->exit_reason = KVM_EXIT_EXIT_KERNEL;
+			rr_release_exec(vcpu);
+			vcpu->to_acquire = false;
+		}
 
 		return kvm_skip_emulated_instruction(vcpu);
 	}

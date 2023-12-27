@@ -79,6 +79,8 @@ const unsigned long uaccess_begin = 0xffffffff811e084c;
 
 static unsigned long ivshmem_base_addr = 0;
 
+/* ====== SMP Serialization functions ======== */
+
 // Structure to hold condition variable state
 typedef struct {
     int current_vcpu;
@@ -97,7 +99,7 @@ static void init_rr_condition(rr_condition *cv) {
 }
 
 // Wait operation
-static void rr_condition_wait(struct kvm_vcpu *vcpu, rr_condition *cv) {
+static void rr_vcpu_checkin(struct kvm_vcpu *vcpu, rr_condition *cv) {
     spin_lock(&cv->lock);
 
     if (cv->current_vcpu == vcpu->vcpu_id)
@@ -108,6 +110,7 @@ static void rr_condition_wait(struct kvm_vcpu *vcpu, rr_condition *cv) {
         DEFINE_WAIT(wait);
         prepare_to_wait(&cv->wait_queue, &wait, TASK_INTERRUPTIBLE);
         spin_unlock(&cv->lock);
+        vcpu->waiting = true;
         // printk(KERN_INFO "[%d] Start waiting", vcpu->vcpu_id);
         schedule(); // Put the current thread to sleep
         
@@ -116,6 +119,7 @@ static void rr_condition_wait(struct kvm_vcpu *vcpu, rr_condition *cv) {
         finish_wait(&cv->wait_queue, &wait);
     }
 
+    vcpu->waiting = false;
     // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
     vcpu->acquired++;
     // Condition is met, continue execution
@@ -127,7 +131,7 @@ out:
 }
 
 // Signal operation
-static void rr_condition_signal(struct kvm_vcpu *vcpu, rr_condition *cv) {
+static void rr_vcpu_checkout(struct kvm_vcpu *vcpu, rr_condition *cv) {
     spin_lock(&cv->lock);
     if (cv->current_vcpu == vcpu->vcpu_id) {
         cv->current_vcpu = -1; // Set the condition to signal
@@ -148,6 +152,17 @@ static void rr_condition_finish(rr_condition *cv) {
     spin_unlock(&cv->lock);
 }
 
+void rr_acquire_exec(struct kvm_vcpu *vcpu)
+{
+    rr_vcpu_checkin(vcpu, exec_lock);
+}
+
+void rr_release_exec(struct kvm_vcpu *vcpu)
+{
+    rr_vcpu_checkout(vcpu, exec_lock);
+}
+
+// ====== SMP Serialization End ========
 
 
 /* ======== RR shared memory functions =========== */
@@ -957,7 +972,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
-        printk(KERN_INFO "Finish RR record");
+        printk(KERN_INFO "Finish RR record, vcpu %d acquire times: %d", vcpu->vcpu_id, vcpu->acquired);
         rr_condition_finish(exec_lock);
     } else {
         total_event_cnt = 0;
@@ -970,6 +985,11 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
         if (exec_lock == NULL) {
             exec_lock = kmalloc(sizeof(rr_condition), GFP_KERNEL);
             init_rr_condition(exec_lock);
+        }
+
+        vcpu->acquired = 0;
+        if (static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+            vcpu->to_acquire = true;
         }
     }
 
@@ -1091,16 +1111,6 @@ void rr_trace_memory_write(struct kvm_vcpu *vcpu, gpa_t gpa)
         rr_mem_log_tail->next = log;
         rr_mem_log_tail = rr_mem_log_tail->next;
     }
-}
-
-void rr_acquire_exec(struct kvm_vcpu *vcpu)
-{
-    rr_condition_wait(vcpu, exec_lock);
-}
-
-void rr_release_exec(struct kvm_vcpu *vcpu)
-{
-    rr_condition_signal(vcpu, exec_lock);
 }
 
 int inst = 0;

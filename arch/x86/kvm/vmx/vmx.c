@@ -4861,7 +4861,6 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 	}
 
 	if (is_invalid_opcode(intr_info)) {
-		printk(KERN_WARNING "Intr info %u", intr_info);
 		return handle_ud(vcpu);
 	}
 
@@ -6046,11 +6045,13 @@ static void check_kernel_serialize(struct kvm_vcpu *me)
 		if (vcpu == me)
 			continue;
 
-		if (!is_guest_mode(vcpu))
+		if (!is_guest_mode(vcpu)) {
+			// printk(KERN_WARNING "Detected non-running vcpu %d", vcpu->vcpu_id);
 			continue;
+		}
 
-		if (vmx_get_cpl(vcpu) == 0) {
-			printk(KERN_WARNING "Detected unexpected running vcpu in kernel mode");
+		if (vcpu->waiting) {
+			printk(KERN_WARNING "Detected unexpected running vcpu %d", vcpu->vcpu_id);
 		}
 	}
 }
@@ -6067,10 +6068,10 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	u32 vectoring_info = vmx->idt_vectoring_info;
 	u16 exit_handler_index;
 
-	// if (rr_in_record()) {
-	if (vmx_get_cpl(vcpu) == 0)
+	if (rr_in_record()) {
+	// if (vmx_get_cpl(vcpu) == 0)
 		check_kernel_serialize(vcpu);
-	// }
+	}
 
 	/*
 	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more

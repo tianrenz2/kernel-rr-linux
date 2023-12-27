@@ -380,6 +380,8 @@ struct kvm_vcpu {
 	bool overflowed;
 	uint64_t executed_inst;
 	int acquired;
+	bool waiting;
+	bool to_acquire;
 };
 
 /*
