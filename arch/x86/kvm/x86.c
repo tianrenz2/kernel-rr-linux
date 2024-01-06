@@ -310,7 +310,6 @@ static struct kmem_cache *x86_emulator_cache;
 bool handled_hype = false;
 
 u64 inst_cnt = 0;
-const u16 round_inst_number = 50000;
 
 static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated);
@@ -333,11 +332,13 @@ static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 }
 
 
-static void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu)
+void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu)
 {
 	int r0;
 
-	unsigned long initial = 0xffffffffffff - round_inst_number;
+	unsigned long initial = 0xffffffffffff - ROUND_INSTRUCTION_NUMBER;
+
+	// unsigned long initial = 0;
 
 	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, initial, false);
 	if (r0 != 0) {
@@ -392,7 +393,7 @@ u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 {
 	u64 cur = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
 
-	return vcpu->executed_inst + (cur + round_inst_number) - 0xffffffffffff;
+	return vcpu->executed_inst + (cur + ROUND_INSTRUCTION_NUMBER) - 0xffffffffffff;
 }
 
 
@@ -9470,6 +9471,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		if (rr_in_record()) {
 			vcpu->run->exit_reason = KVM_EXIT_ENTER_KERNEL;
 			vcpu->to_acquire = true;
+			vcpu->kernel_enter_num++;
 		}
 
 		return kvm_skip_emulated_instruction(vcpu);
@@ -9479,6 +9481,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 			vcpu->run->exit_reason = KVM_EXIT_EXIT_KERNEL;
 			rr_release_exec(vcpu);
 			vcpu->to_acquire = false;
+			vcpu->kernel_exit_num++;
 		}
 
 		return kvm_skip_emulated_instruction(vcpu);
@@ -10341,8 +10344,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
-	if (rr_in_record())
+	if (rr_in_record() && vcpu->to_acquire && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
 		rr_acquire_exec(vcpu);
+		check_kernel_serialize(vcpu);
+	}
 
 	preempt_disable();
 
@@ -10538,10 +10543,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		if (vcpu->overflowed) {
 			vcpu->overflowed = false;
-			vcpu->run->exit_reason = KVM_EXIT_PMU_OVERFLOWED;
 			rr_reset_gp_inst_counter(vcpu);
-			vcpu->executed_inst += round_inst_number;
+			vcpu->executed_inst += ROUND_INSTRUCTION_NUMBER;
 			rr_release_exec(vcpu);
+			// printk(KERN_INFO "Inst overflowed: %lu", vcpu->executed_inst);
 			// return 0;
 		}
 	}

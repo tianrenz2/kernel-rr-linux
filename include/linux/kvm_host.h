@@ -382,6 +382,8 @@ struct kvm_vcpu {
 	int acquired;
 	bool waiting;
 	bool to_acquire;
+	uint64_t kernel_enter_num;
+	uint64_t kernel_exit_num;
 };
 
 /*

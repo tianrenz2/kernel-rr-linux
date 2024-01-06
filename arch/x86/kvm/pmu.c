@@ -20,6 +20,7 @@
 #include "cpuid.h"
 #include "lapic.h"
 #include "pmu.h"
+#include "kernel_rr.h"
 
 /* This is enough to filter the vast majority of currently defined events. */
 #define KVM_PMU_EVENT_FILTER_MAX_EVENTS 300

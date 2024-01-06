@@ -6035,28 +6035,6 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 		       vmcs_read16(VIRTUAL_PROCESSOR_ID));
 }
 
-static void check_kernel_serialize(struct kvm_vcpu *me)
-{
-	struct kvm *kvm = me->kvm;
-	struct kvm_vcpu *vcpu;
-	unsigned long i;
-
-	kvm_for_each_vcpu(i, vcpu, kvm) {
-		if (vcpu == me)
-			continue;
-
-		if (!is_guest_mode(vcpu)) {
-			// printk(KERN_WARNING "Detected non-running vcpu %d", vcpu->vcpu_id);
-			continue;
-		}
-
-		if (vcpu->waiting) {
-			printk(KERN_WARNING "Detected unexpected running vcpu %d", vcpu->vcpu_id);
-		}
-	}
-}
-
-
 /*
  * The guest has exited.  See if we can fix it or if we need userspace
  * assistance.

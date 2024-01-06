@@ -11,6 +11,8 @@
 #define KERNEL_ENTRY_INTR 0xffffffff81a00c00 // b arch/x86/entry/entry_64.S:226
 #define KERNEL_EXIT_INTR 0xffffffff81a00eed // b arch/x86/entry/entry_64.S:702   
 
+#define ROUND_INSTRUCTION_NUMBER 50000
+
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
 int rr_in_record(void);
@@ -60,4 +62,6 @@ void rr_register_ivshmem(unsigned long addr);
 void rr_acquire_exec(struct kvm_vcpu *vcpu);
 void rr_release_exec(struct kvm_vcpu *vcpu);
 void rr_set_in_record_all(struct kvm *kvm, int record);
+void check_kernel_serialize(struct kvm_vcpu *me);
+void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu);
 #endif /* __KVM_X86_KERNEL_RR_H */

@@ -105,6 +105,7 @@ static void rr_vcpu_checkin(struct kvm_vcpu *vcpu, rr_condition *cv) {
     if (cv->current_vcpu == vcpu->vcpu_id)
         goto out;
 
+wait:
     while (rr_in_record() && cv->current_vcpu >= 0 && cv->current_vcpu != vcpu->vcpu_id) {
         // Release the lock and sleep on the wait queue
         DEFINE_WAIT(wait);
@@ -120,11 +121,16 @@ static void rr_vcpu_checkin(struct kvm_vcpu *vcpu, rr_condition *cv) {
     }
 
     vcpu->waiting = false;
-    // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
     vcpu->acquired++;
     // Condition is met, continue execution
-    if (cv->current_vcpu == -1)
+    if (cv->current_vcpu == -1) {
         cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
+        // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
+    } else if (cv->current_vcpu == -2)  {
+        goto out;
+    } else {
+        goto wait;
+    }
 
 out:
     spin_unlock(&cv->lock);
@@ -972,7 +978,8 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
-        printk(KERN_INFO "Finish RR record, vcpu %d acquire times: %d", vcpu->vcpu_id, vcpu->acquired);
+        printk(KERN_INFO "Finish RR record, vcpu %d acquire times: %d, enter_kernel: %d, exit_kernel %d",
+               vcpu->vcpu_id, vcpu->acquired, vcpu->kernel_enter_num, vcpu->kernel_exit_num);
         rr_condition_finish(exec_lock);
     } else {
         total_event_cnt = 0;
@@ -991,6 +998,8 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
         if (static_call(kvm_x86_get_cpl)(vcpu) == 0) {
             vcpu->to_acquire = true;
         }
+        vcpu->kernel_enter_num = 0;
+        vcpu->kernel_exit_num = 0;
     }
 
     rr_clear_mem_log();
@@ -1192,3 +1201,26 @@ void rr_register_ivshmem(unsigned long addr)
 }
 
 EXPORT_SYMBOL_GPL(rr_handle_breakpoint);
+
+
+void check_kernel_serialize(struct kvm_vcpu *me)
+{
+	struct kvm *kvm = me->kvm;
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		if (vcpu == me)
+			continue;
+
+		if (!is_guest_mode(vcpu)) {
+			// printk(KERN_WARNING "Detected non-running vcpu %d", vcpu->vcpu_id);
+			continue;
+		}
+
+		if (!vcpu->waiting) {
+			printk(KERN_WARNING "Detected unexpected running vcpu %d", vcpu->vcpu_id);
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(check_kernel_serialize);
