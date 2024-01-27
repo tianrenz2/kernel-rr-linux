@@ -113,8 +113,9 @@ static void pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type,
 		.config = config,
 	};
 
-	printk(KERN_INFO "counter: exclude_kernel=%d, exclude_user=%d\n",
-		   exclude_kernel, exclude_user);
+	if (rr_in_record())
+		printk(KERN_INFO "counter: exclude_kernel=%d, exclude_user=%d\n",
+			exclude_kernel, exclude_user);
 
 	if (type == PERF_TYPE_HARDWARE && config >= PERF_COUNT_HW_MAX)
 		return;
@@ -268,7 +269,8 @@ void reprogram_fixed_counter(struct kvm_pmc *pmc, u8 ctrl, int idx)
 
 	pmc_release_perf_event(pmc);
 
-	printk(KERN_WARNING "[reprogram_fixed_counter]: called\n");
+	if (rr_in_record())
+		printk(KERN_WARNING "[reprogram_fixed_counter]: called\n");
 
 	pmc->current_config = (u64)ctrl;
 	pmc_reprogram_counter(pmc, PERF_TYPE_HARDWARE,
@@ -386,7 +388,6 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 		return 1;
 
 	cnt = pmc_read_counter(pmc);
-	printk("[kvm_pmu_rdpmc]: counter=%llu\n", cnt);
 
 	*data = cnt & mask;
 	return 0;

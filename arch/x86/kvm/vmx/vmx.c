@@ -6046,10 +6046,10 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	u32 vectoring_info = vmx->idt_vectoring_info;
 	u16 exit_handler_index;
 
-	if (rr_in_record()) {
-	// if (vmx_get_cpl(vcpu) == 0)
-		check_kernel_serialize(vcpu);
-	}
+	// if (rr_in_record()) {
+	// // if (vmx_get_cpl(vcpu) == 0)
+	// 	check_kernel_serialize(vcpu);
+	// }
 
 	/*
 	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more
@@ -6811,8 +6811,14 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	if (vcpu->arch.cr2 != native_read_cr2())
 		native_write_cr2(vcpu->arch.cr2);
 
+	// if (rr_in_record())
+	// 	check_kernel_serialize(vcpu);
+
 	vmx->fail = __vmx_vcpu_run(vmx, (unsigned long *)&vcpu->arch.regs,
 				   vmx->loaded_vmcs->launched);
+
+	// if (rr_in_record())
+	// 	check_kernel_serialize(vcpu);
 
 	vcpu->arch.cr2 = native_read_cr2();
 

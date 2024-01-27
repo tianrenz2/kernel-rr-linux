@@ -17,6 +17,7 @@
 #include "lapic.h"
 #include "nested.h"
 #include "pmu.h"
+#include "kernel_rr.h"
 
 #define MSR_PMC_FULL_WIDTH_BIT      (MSR_IA32_PMC0 - MSR_IA32_PERFCTR0)
 
@@ -39,7 +40,8 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
 	int i;
 
-	printk(KERN_WARNING "[reprogram_fixed_counters] data=%llx", data);
+	if (rr_in_record())
+		printk(KERN_WARNING "[reprogram_fixed_counters] data=%llx", data);
 	// dump_stack();
 
 	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {

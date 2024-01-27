@@ -257,6 +257,9 @@ static int ioapic_set_irq(struct kvm_ioapic *ioapic, unsigned int irq,
 		}
 	}
 
+	// if (irq == 8)
+	// printk(KERN_INFO "irq timer injected, irq=%u", irq);
+
 	ret = ioapic_service(ioapic, irq, line_status);
 
 out:

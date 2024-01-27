@@ -380,10 +380,12 @@ struct kvm_vcpu {
 	bool overflowed;
 	uint64_t executed_inst;
 	int acquired;
-	bool waiting;
+	atomic_t waiting;
 	bool to_acquire;
 	uint64_t kernel_enter_num;
 	uint64_t kernel_exit_num;
+	uint64_t of_cnt;
+	uint64_t exit_cnt;
 };
 
 /*

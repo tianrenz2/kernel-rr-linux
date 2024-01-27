@@ -4,6 +4,7 @@
 #include <linux/buffer_head.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
+#include <linux/timekeeping.h>
 
 #include "x86.h"
 #include "kvm_cache_regs.h"
@@ -79,6 +80,8 @@ const unsigned long uaccess_begin = 0xffffffff811e084c;
 
 static unsigned long ivshmem_base_addr = 0;
 
+static struct timespec64 start_time;
+
 /* ====== SMP Serialization functions ======== */
 
 // Structure to hold condition variable state
@@ -106,12 +109,12 @@ static void rr_vcpu_checkin(struct kvm_vcpu *vcpu, rr_condition *cv) {
         goto out;
 
 wait:
+    atomic_set(&vcpu->waiting, true);
     while (rr_in_record() && cv->current_vcpu >= 0 && cv->current_vcpu != vcpu->vcpu_id) {
         // Release the lock and sleep on the wait queue
         DEFINE_WAIT(wait);
         prepare_to_wait(&cv->wait_queue, &wait, TASK_INTERRUPTIBLE);
         spin_unlock(&cv->lock);
-        vcpu->waiting = true;
         // printk(KERN_INFO "[%d] Start waiting", vcpu->vcpu_id);
         schedule(); // Put the current thread to sleep
         
@@ -120,13 +123,14 @@ wait:
         finish_wait(&cv->wait_queue, &wait);
     }
 
-    vcpu->waiting = false;
     vcpu->acquired++;
     // Condition is met, continue execution
     if (cv->current_vcpu == -1) {
+        atomic_set(&vcpu->waiting, false);
         cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
         // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
     } else if (cv->current_vcpu == -2)  {
+        atomic_set(&vcpu->waiting, false);
         goto out;
     } else {
         goto wait;
@@ -139,6 +143,9 @@ out:
 // Signal operation
 static void rr_vcpu_checkout(struct kvm_vcpu *vcpu, rr_condition *cv) {
     spin_lock(&cv->lock);
+
+    atomic_set(&vcpu->waiting, true);
+
     if (cv->current_vcpu == vcpu->vcpu_id) {
         cv->current_vcpu = -1; // Set the condition to signal
 
@@ -162,11 +169,13 @@ void rr_acquire_exec(struct kvm_vcpu *vcpu)
 {
     rr_vcpu_checkin(vcpu, exec_lock);
 }
+EXPORT_SYMBOL_GPL(rr_acquire_exec);
 
 void rr_release_exec(struct kvm_vcpu *vcpu)
 {
     rr_vcpu_checkout(vcpu, exec_lock);
 }
+EXPORT_SYMBOL_GPL(rr_release_exec);
 
 // ====== SMP Serialization End ========
 
@@ -954,6 +963,11 @@ void rr_set_in_record_all(struct kvm *kvm, int record)
     unsigned long i;
     struct kvm_vcpu *vcpu;
 
+    if (record) {
+        ktime_get_real_ts64(&start_time);
+        printk(KERN_INFO "Start %ld", start_time.tv_sec);
+    }
+
     kvm_for_each_vcpu(i, vcpu, kvm) {
         rr_set_in_record(vcpu, record);
     }
@@ -965,6 +979,7 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
     //     printk(KERN_WARNING "Skip because it's record status is already %d\n", record);
     //     return;
     // }
+    struct timespec64 end, diff;
 
     in_record = record;
 
@@ -978,8 +993,14 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         vcpu->int_injected = 0;
 
-        printk(KERN_INFO "Finish RR record, vcpu %d acquire times: %d, enter_kernel: %d, exit_kernel %d",
-               vcpu->vcpu_id, vcpu->acquired, vcpu->kernel_enter_num, vcpu->kernel_exit_num);
+        ktime_get_real_ts64(&end);
+        diff = timespec64_sub(end, start_time);
+
+        printk(KERN_INFO "End %ld", end.tv_sec);
+        printk(KERN_INFO "Finish RR record, vcpu %d acquire times: %d, enter_kernel: %d, "
+               "exit_kernel %d, of: %lu, exits: %lu, time consumed: %llds",
+               vcpu->vcpu_id, vcpu->acquired, vcpu->kernel_enter_num,
+               vcpu->kernel_exit_num, vcpu->of_cnt, vcpu->exit_cnt, (long long)diff.tv_sec);
         rr_condition_finish(exec_lock);
     } else {
         total_event_cnt = 0;
@@ -991,15 +1012,18 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         if (exec_lock == NULL) {
             exec_lock = kmalloc(sizeof(rr_condition), GFP_KERNEL);
-            init_rr_condition(exec_lock);
         }
 
+        init_rr_condition(exec_lock);
         vcpu->acquired = 0;
-        if (static_call(kvm_x86_get_cpl)(vcpu) == 0) {
-            vcpu->to_acquire = true;
-        }
+        vcpu->to_acquire = true;
+        atomic_set(&vcpu->waiting, true);
         vcpu->kernel_enter_num = 0;
         vcpu->kernel_exit_num = 0;
+        vcpu->of_cnt = 0;
+        vcpu->exit_cnt = 0;
+        ktime_get_real_ts64(&start_time);
+        printk(KERN_INFO "Start %ld", start_time.tv_sec);
     }
 
     rr_clear_mem_log();
@@ -1213,12 +1237,12 @@ void check_kernel_serialize(struct kvm_vcpu *me)
 		if (vcpu == me)
 			continue;
 
-		if (!is_guest_mode(vcpu)) {
-			// printk(KERN_WARNING "Detected non-running vcpu %d", vcpu->vcpu_id);
-			continue;
+		if (is_guest_mode(vcpu)) {
+			printk(KERN_WARNING "Detected non-running vcpu %d", vcpu->vcpu_id);
+			// continue;
 		}
 
-		if (!vcpu->waiting) {
+		if (!atomic_read(&vcpu->waiting)) {
 			printk(KERN_WARNING "Detected unexpected running vcpu %d", vcpu->vcpu_id);
 		}
 	}

@@ -383,7 +383,7 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 
 	vcpu->in_hype = true;
 	
-	rr_setup_gp_counter(vcpu, true);
+	rr_setup_gp_counter(vcpu, false);
 
 	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
 	printk(KERN_WARNING "initial inst cnt: %llu\n", vcpu->rr_start_point);
@@ -5794,8 +5794,8 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		
 		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
 
-		rr_register_ivshmem(record_data.shm_base_addr);
 		rr_set_in_record(vcpu, 1);
+		rr_register_ivshmem(record_data.shm_base_addr);
 		break;
 	}
 	case KVM_END_RECORD: {
@@ -10344,9 +10344,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
-	if (rr_in_record() && vcpu->to_acquire && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+	if (rr_in_record()) {
 		rr_acquire_exec(vcpu);
-		check_kernel_serialize(vcpu);
 	}
 
 	preempt_disable();
@@ -10541,38 +10540,23 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	if (rr_in_record()) {
 
+		vcpu->exit_cnt++;
+
 		if (vcpu->overflowed) {
 			vcpu->overflowed = false;
+			vcpu->of_cnt++;
 			rr_reset_gp_inst_counter(vcpu);
 			vcpu->executed_inst += ROUND_INSTRUCTION_NUMBER;
 			rr_release_exec(vcpu);
-			// printk(KERN_INFO "Inst overflowed: %lu", vcpu->executed_inst);
-			// return 0;
+			vcpu->to_acquire = true;
 		}
-	}
-
-	if (rr_in_record()) {
+	
 		if (vcpu->run->exit_reason == KVM_EXIT_HLT || vcpu->arch.mp_state == KVM_MP_STATE_HALTED) {
-			// vcpu->run->exit_reason = KVM_EXIT_HLT;
+			// printk(KERN_INFO "Release exec for halt");
 			rr_release_exec(vcpu);
-			// return 0;
+			vcpu->to_acquire = true;
 		}
 	}
-	// if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
-	// 	if (rr_in_record()) {
-	// 		uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);
-	// 		unsigned long rip = kvm_get_linear_rip(vcpu);
-	// 		// if (inst_cnt == vcpu->last_inst_cnt) {
-	// 		// 	printk(KERN_WARNING "repeatitive inst cnt\n");
-	// 		// }
-	// 		// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
-
-	// 		vcpu->last_rip = rip;
-	// 		vcpu->last_inst_cnt = inst_cnt;
-
-	// 		rr_handle_breakpoint(vcpu);
-	// 	}
-	// }
 
 	return r;
 
@@ -10591,8 +10575,9 @@ static inline int vcpu_block(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	bool hv_timer;
 
-	if(rr_in_record())
+	if(rr_in_record()) {
 		rr_release_exec(vcpu);
+	}
 
 	if (!kvm_arch_vcpu_runnable(vcpu)) {
 		/*

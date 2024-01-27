@@ -3381,6 +3381,9 @@ void kvm_vcpu_halt(struct kvm_vcpu *vcpu)
 	bool waited = false;
 	u64 halt_ns;
 
+	if (rr_in_record())
+		rr_release_exec(vcpu);
+
 	start = cur = poll_end = ktime_get();
 	if (do_halt_poll) {
 		ktime_t stop = ktime_add_ns(start, vcpu->halt_poll_ns);
