@@ -126,17 +126,17 @@ wait:
     vcpu->acquired++;
     // Condition is met, continue execution
     if (cv->current_vcpu == -1) {
-        atomic_set(&vcpu->waiting, false);
         cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
         // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
     } else if (cv->current_vcpu == -2)  {
-        atomic_set(&vcpu->waiting, false);
+        // This is when the record is signaled as finished
         goto out;
     } else {
         goto wait;
     }
 
 out:
+    atomic_set(&vcpu->waiting, false);
     spin_unlock(&cv->lock);
 }
 
