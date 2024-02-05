@@ -6811,14 +6811,14 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 	if (vcpu->arch.cr2 != native_read_cr2())
 		native_write_cr2(vcpu->arch.cr2);
 
-	if (rr_in_record())
-		check_kernel_serialize(vcpu);
+	// if (rr_in_record())
+	// 	check_kernel_serialize(vcpu);
 
 	vmx->fail = __vmx_vcpu_run(vmx, (unsigned long *)&vcpu->arch.regs,
 				   vmx->loaded_vmcs->launched);
 
-	if (rr_in_record())
-		check_kernel_serialize(vcpu);
+	// if (rr_in_record())
+	// 	check_kernel_serialize(vcpu);
 
 	vcpu->arch.cr2 = native_read_cr2();
 

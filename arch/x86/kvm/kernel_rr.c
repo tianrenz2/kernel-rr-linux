@@ -5,6 +5,7 @@
 #include <linux/wait.h>
 #include <linux/sched.h>
 #include <linux/timekeeping.h>
+#include <linux/spinlock.h>
 
 #include "x86.h"
 #include "kvm_cache_regs.h"
@@ -84,96 +85,30 @@ static struct timespec64 start_time;
 
 /* ====== SMP Serialization functions ======== */
 
-// Structure to hold condition variable state
-typedef struct {
-    int current_vcpu;
-    wait_queue_head_t wait_queue;
-    spinlock_t lock;
-} rr_condition;
-
-
-static rr_condition *exec_lock = NULL;
-
-// Initialize the condition variable
-static void init_rr_condition(rr_condition *cv) {
-    cv->current_vcpu = -1;
-    init_waitqueue_head(&cv->wait_queue);
-    spin_lock_init(&cv->lock);
-}
-
-// Wait operation
-static void rr_vcpu_checkin(struct kvm_vcpu *vcpu, rr_condition *cv) {
-    spin_lock(&cv->lock);
-
-    if (cv->current_vcpu == vcpu->vcpu_id)
-        goto out;
-
-wait:
-    atomic_set(&vcpu->waiting, true);
-    while (rr_in_record() && cv->current_vcpu >= 0 && cv->current_vcpu != vcpu->vcpu_id) {
-        // Release the lock and sleep on the wait queue
-        DEFINE_WAIT(wait);
-        prepare_to_wait(&cv->wait_queue, &wait, TASK_INTERRUPTIBLE);
-        spin_unlock(&cv->lock);
-        // printk(KERN_INFO "[%d] Start waiting", vcpu->vcpu_id);
-        schedule(); // Put the current thread to sleep
-        
-        spin_lock(&cv->lock);
-        // Reacquire the lock after waking up
-        finish_wait(&cv->wait_queue, &wait);
-    }
-
-    vcpu->acquired++;
-    // Condition is met, continue execution
-    if (cv->current_vcpu == -1) {
-        cv->current_vcpu = vcpu->vcpu_id; // Reset the condition for future waits
-        // printk(KERN_INFO "[%d] Acquired lock\n", vcpu->vcpu_id);
-    } else if (cv->current_vcpu == -2)  {
-        // This is when the record is signaled as finished
-        goto out;
-    } else {
-        goto wait;
-    }
-
-out:
-    atomic_set(&vcpu->waiting, false);
-    spin_unlock(&cv->lock);
-}
-
-// Signal operation
-static void rr_vcpu_checkout(struct kvm_vcpu *vcpu, rr_condition *cv) {
-    spin_lock(&cv->lock);
-
-    atomic_set(&vcpu->waiting, true);
-
-    if (cv->current_vcpu == vcpu->vcpu_id) {
-        cv->current_vcpu = -1; // Set the condition to signal
-
-        // printk(KERN_INFO "[%d] Released lock\n", vcpu->vcpu_id);
-
-        if (waitqueue_active(&cv->wait_queue))
-            wake_up(&cv->wait_queue); // Wake up one waiting thread
-    }
-    spin_unlock(&cv->lock);
-}
-
-// // Broadcast operation
-static void rr_condition_finish(rr_condition *cv) {
-    spin_lock(&cv->lock);
-    cv->current_vcpu = -2; // Set the condition to signal
-    wake_up_all(&cv->wait_queue); // Wake up all waiting threads
-    spin_unlock(&cv->lock);
-}
+static arch_spinlock_t exec_lock = __ARCH_SPIN_LOCK_UNLOCKED;
+int current_owner = -1;
 
 void rr_acquire_exec(struct kvm_vcpu *vcpu)
 {
-    rr_vcpu_checkin(vcpu, exec_lock);
+    if (current_owner == vcpu->vcpu_id)
+        return;
+
+    atomic_set(&vcpu->waiting, 1);
+    arch_spin_lock(&exec_lock);
+    current_owner = vcpu->vcpu_id;
+    atomic_set(&vcpu->waiting, 0);
 }
 EXPORT_SYMBOL_GPL(rr_acquire_exec);
 
 void rr_release_exec(struct kvm_vcpu *vcpu)
 {
-    rr_vcpu_checkout(vcpu, exec_lock);
+    if (current_owner != vcpu->vcpu_id)
+        return;
+
+    atomic_set(&vcpu->waiting, 1);
+    arch_spin_unlock(&exec_lock);
+    current_owner = -1;
+    // printk(KERN_INFO "vcpu %d released the lock", vcpu->vcpu_id);
 }
 EXPORT_SYMBOL_GPL(rr_release_exec);
 
@@ -1001,7 +936,6 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
                "exit_kernel %d, of: %lu, exits: %lu, time consumed: %llds",
                vcpu->vcpu_id, vcpu->acquired, vcpu->kernel_enter_num,
                vcpu->kernel_exit_num, vcpu->of_cnt, vcpu->exit_cnt, (long long)diff.tv_sec);
-        rr_condition_finish(exec_lock);
     } else {
         total_event_cnt = 0;
 
@@ -1010,11 +944,6 @@ void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
         vcpu->int_injected = 0;
 
-        if (exec_lock == NULL) {
-            exec_lock = kmalloc(sizeof(rr_condition), GFP_KERNEL);
-        }
-
-        init_rr_condition(exec_lock);
         vcpu->acquired = 0;
         vcpu->to_acquire = true;
         atomic_set(&vcpu->waiting, true);

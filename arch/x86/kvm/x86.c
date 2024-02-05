@@ -10308,8 +10308,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		if (kvm_check_request(KVM_REQ_START_RECORD, vcpu))
 			kvm_start_inst_cnt(vcpu);
 		
-		if (kvm_check_request(KVM_REQ_END_RECORD, vcpu))
+		if (kvm_check_request(KVM_REQ_END_RECORD, vcpu)) {
+			rr_release_exec(vcpu);
 			kvm_stop_inst_cnt(vcpu);
+		}
 	}
 
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
@@ -10344,11 +10346,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
+	preempt_disable();
+
 	if (rr_in_record()) {
 		rr_acquire_exec(vcpu);
 	}
-
-	preempt_disable();
 
 	static_call(kvm_x86_prepare_guest_switch)(vcpu);
 
