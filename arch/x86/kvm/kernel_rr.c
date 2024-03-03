@@ -86,7 +86,6 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");
     }
-    event_log->id = header.current_pos;
 
     if (header.current_pos == header.total_pos - 1) {
         printk(KERN_WARNING "Shared memory is full\n");
@@ -118,6 +117,7 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.event.io_input.value = *io_val;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
+    event.id = vcpu->vcpu_id;
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     rr_append_to_queue(&event);
@@ -129,12 +129,29 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
     rr_event_log_guest event = {
         .type = EVENT_TYPE_INTERRUPT
     };
+    unsigned long rip;
 
     WARN_ON(is_guest_mode(vcpu));
 
+    rip = kvm_get_linear_rip(vcpu);
+
+    if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
+        return;
+    }
+
+    if (rip == 0xffffffff81891e90) {
+        return;
+    }
+
     event.event.interrupt.vector = *int_vector;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
-    event.rip = kvm_get_linear_rip(vcpu);
+    event.rip = rip;
+    event.id = vcpu->vcpu_id;
+
+    if (event.rip == 0xffffffff818a14ce) {
+        printk(KERN_INFO "Get int on unlock");
+        // vcpu->bp_exit = 1;
+    }
 
     // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
     rr_append_to_queue(&event);
@@ -150,6 +167,7 @@ static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.event.io_input.value = *tsc_val;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
+    event.id = vcpu->vcpu_id;
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     rr_append_to_queue(&event);

@@ -375,6 +375,8 @@ struct kvm_vcpu {
 
 	unsigned long last_rip;
 	uint64_t last_inst_cnt;
+	int bp_exit;
+	unsigned long begin_spin_cnt;
 };
 
 /*

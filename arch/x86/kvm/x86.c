@@ -1429,9 +1429,13 @@ int kvm_emulate_rdpmc(struct kvm_vcpu *vcpu)
 	u64 data;
 	unsigned int low, high;
 
-	if (kvm_pmu_rdpmc(vcpu, ecx, &data)) {
-		kvm_inject_gp(vcpu, 0);
-		return 1;
+	if (kvm_get_linear_rip(vcpu) == 0xffffffff81034e60)
+		data = 0;
+	else {
+		if (kvm_pmu_rdpmc(vcpu, ecx, &data)) {
+			kvm_inject_gp(vcpu, 0);
+			return 1;
+		}
 	}
 
 	kvm_rax_write(vcpu, (u32)data);
@@ -5889,6 +5893,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = -EFAULT;
 
 		cnt = kvm_get_inst_cnt(vcpu);
+		printk(KERN_INFO "Inst cnt=%lu\n", cnt);
 
 		if (copy_to_user(inst_cnt, &cnt, sizeof(unsigned long)))
 			goto out;
@@ -9451,6 +9456,20 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = 0;
 		return kvm_skip_emulated_instruction(vcpu);
 	}
+	case KVM_HC_RR_OTHER: {
+		if (rr_in_record()) {
+			vcpu->begin_spin_cnt = kvm_get_inst_cnt(vcpu);
+		}
+
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+	case 18: {
+		if (rr_in_record()) {
+			printk(KERN_INFO "cpu %d spin times: %d, inst number %lu", a0, a1, kvm_get_inst_cnt(vcpu) - vcpu->begin_spin_cnt);
+		}
+
+		return kvm_skip_emulated_instruction(vcpu);
+	}
 	default:
 		ret = -KVM_ENOSYS;
 		break;
@@ -9675,6 +9694,12 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			if (rr_in_record()) {
 				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, &intr);
 				vcpu->int_injected++;
+				if (vcpu->bp_exit) {
+					r = -199;
+					*req_immediate_exit = true;
+					vcpu->bp_exit = 0;
+					goto out;
+				}
 			}
 		}
 		if (kvm_cpu_has_injectable_intr(vcpu))
@@ -10286,7 +10311,10 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 		r = inject_pending_event(vcpu, &req_immediate_exit);
 		if (r < 0) {
-			r = 0;
+			if (r != -199)
+				r = 0;
+			else
+				printk(KERN_INFO "Unlock interrupt");
 			goto out;
 		}
 		if (req_int_win)
@@ -10796,6 +10824,9 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu)
 		goto out;
 
 	r = vcpu_run(vcpu);
+
+	if (r == -199)
+		printk(KERN_INFO "Unlock exit");
 
 out:
 	kvm_put_guest_fpu(vcpu);

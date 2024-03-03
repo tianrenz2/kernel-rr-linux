@@ -145,13 +145,15 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 		counters = pmu->gp_counters;
 		num_counters = pmu->nr_arch_gp_counters;
 	}
-	if (idx >= num_counters)
+	if (idx >= num_counters) {
 		return NULL;
+	}
 	*mask &= pmu->counter_bitmask[fixed ? KVM_PMC_FIXED : KVM_PMC_GP];
 
 	int index = array_index_nospec(idx, num_counters);
 	
-	// printk(KERN_WARNING "intel_rdpmc_ecx_to_pmc: fixed=%d counter idx=%d\n", fixed, index);
+	printk(KERN_WARNING "intel_rdpmc_ecx_to_pmc: fixed=%d counter idx=%d, rip=0x%lx\n",
+		   fixed, index, kvm_get_linear_rip(vcpu));
 
 	return &counters[index];
 }

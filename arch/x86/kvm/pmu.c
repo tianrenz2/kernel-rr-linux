@@ -374,16 +374,20 @@ int kvm_pmu_rdpmc(struct kvm_vcpu *vcpu, unsigned idx, u64 *data)
 		return kvm_pmu_rdpmc_vmware(vcpu, idx, data);
 
 	pmc = kvm_x86_ops.pmu_ops->rdpmc_ecx_to_pmc(vcpu, idx, &mask);
-	if (!pmc)
+	if (!pmc) {
+		printk(KERN_WARNING "failed to get pmc");
 		return 1;
+	}
 
 	if (!(kvm_read_cr4(vcpu) & X86_CR4_PCE) &&
 	    (static_call(kvm_x86_get_cpl)(vcpu) != 0) &&
-	    (kvm_read_cr0(vcpu) & X86_CR0_PE))
+	    (kvm_read_cr0(vcpu) & X86_CR0_PE)) {
+		printk(KERN_WARNING "failed to check pmc");
 		return 1;
+	}
 
 	cnt = pmc_read_counter(pmc);
-	printk("[kvm_pmu_rdpmc]: counter=%llu\n", cnt);
+	// printk("[kvm_pmu_rdpmc]: counter=%llu\n", cnt);
 
 	*data = cnt & mask;
 	return 0;
