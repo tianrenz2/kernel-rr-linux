@@ -62,8 +62,9 @@ typedef struct {
 
 typedef struct {
     int vector;
-    unsigned long rip;
     unsigned long ecx;
+    int from;
+    unsigned long spin_count;
 } rr_interrupt;
 
 typedef struct {
@@ -71,11 +72,13 @@ typedef struct {
     int error_code;
     unsigned long cr2;
     struct kvm_regs regs;
+    unsigned long spin_count;
 } rr_exception;
 
 typedef struct {
     struct kvm_regs regs;
     unsigned long kernel_gsbase, msr_gsbase, cr3;
+    unsigned long spin_count;
 } rr_syscall;
 
 typedef struct {
@@ -86,6 +89,7 @@ typedef struct {
 
 typedef struct rr_event_log_t{
     int type;
+    int id;
     union {
         rr_interrupt interrupt;
         rr_exception exception;

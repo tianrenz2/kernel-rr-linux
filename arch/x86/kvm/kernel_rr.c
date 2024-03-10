@@ -2,6 +2,7 @@
 #include <asm/segment.h>
 #include <asm/uaccess.h>
 #include <linux/buffer_head.h>
+#include <linux/spinlock.h>
 
 #include "x86.h"
 #include "kvm_cache_regs.h"
@@ -11,8 +12,12 @@
 
 #include "kernel_rr.h"
 
+static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque);
+
 int in_record = 0;
 int in_replay = 0;
+
+DEFINE_SPINLOCK(queue_lock);
 
 rr_event_log *rr_event_log_head = NULL;
 rr_event_log *rr_event_log_tail = NULL;
@@ -24,38 +29,6 @@ rr_mem_access_log *rr_mem_log_tail = NULL;
 rr_mem_access_log *rr_mem_log_cur = NULL;
 
 rr_random *random_cur = NULL;
-
-// const unsigned long syscall_addr = 0xffffffff81200000;
-// const unsigned long pf_excep_addr = 0xffffffff8111e369;
-// const unsigned long copy_from_iter_addr = 0xffffffff810afc14;
-// const unsigned long copy_from_user_addr = 0xffffffff810b4fb8;
-// const unsigned long copy_page_from_iter_addr = 0xffffffff810b0b16;
-// const unsigned long strncpy_addr = 0xffffffff810cbd51;
-// const unsigned long get_user_addr = 0xffffffff81118850;
-// const unsigned long strnlen_user_addr = 0xffffffff810cbe4a;
-// const unsigned long random_bytes_addr = 0xffffffff810e1e25;
-
-// const unsigned long syscall_addr = 0xffffffff81800000;
-// const unsigned long pf_excep_addr = 0xffffffff81800ab0;
-// const unsigned long copy_from_iter_addr = 0xffffffff816452a9;
-// const unsigned long copy_from_user_addr = 0xffffffff8164c967; 
-// const unsigned long copy_page_from_iter_addr = 0xffffffff8100000;
-// const unsigned long strncpy_addr = 0xffffffff816c064c; // call   0xffffffff811183e0 <copy_user_enhanced_fast_string>
-// const unsigned long get_user_addr = 0xffffffff818fa750;
-// const unsigned long strnlen_user_addr = 0xffffffff816c0751;
-
-// == no hypercall
-// const unsigned long syscall_addr = 0xffffffff81800000; // info addr entry_SYSCALL_64
-// const unsigned long pf_excep_addr = 0xffffffff81741930; // info addr exc_page_fault
-// const unsigned long copy_from_iter_addr = 0xffffffff8144af0d; // lib/iov_iter.c:186
-// const unsigned long copy_from_user_addr = 0xffffffff814528e7; // lib/usercopy.c:21
-// const unsigned long copy_page_from_iter_addr = 0xffffffff8144dd7e;
-// const unsigned long strncpy_addr = 0xffffffff81483732; // lib/strncpy_from_user.c:141
-// const unsigned long get_user_addr = 0xffffffff81708100; // arch/x86/lib/getuser.S:103
-// const unsigned long strnlen_user_addr = 0xffffffff81483832; // lib/strnlen_user.c:115
-
-// const unsigned long random_bytes_addr_start = 0xffffffff81533620; // b _get_random_bytes
-// const unsigned long random_bytes_addr_end = 0xffffffff815337c0; // b drivers/char/random.c:382
 
 // == with hypercall
 const unsigned long syscall_addr = 0xffffffff81800000; // info addr entry_SYSCALL_64
@@ -135,10 +108,6 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 
     rip = kvm_get_linear_rip(vcpu);
 
-    if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
-        return;
-    }
-
     if (rip == 0xffffffff81891e90) {
         return;
     }
@@ -148,13 +117,8 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.rip = rip;
     event.id = vcpu->vcpu_id;
 
-    if (event.rip == 0xffffffff818a14ce) {
-        printk(KERN_INFO "Get int on unlock");
-        // vcpu->bp_exit = 1;
-    }
-
-    // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
     rr_append_to_queue(&event);
+    // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
@@ -226,21 +190,15 @@ __maybe_unused static void rr_record_regs(struct kvm_regs *dest_regs, struct kvm
 
 int rr_get_event_list_length(void)
 {
-    // rr_event_log *event = rr_event_log_head;
-    // int len = 0;
+    rr_event_log *event = rr_event_log_head;
+    int len = 0;
 
-    // if (rr_event_log_head != NULL)
-    //     printk(KERN_INFO "rr log head: %d\n", rr_event_log_head->type);
+    while (event != NULL) {
+        len++;
+        event = event->next;
+    }
 
-    // while (event != NULL) {
-    //     len++;
-    //     event = event->next;
-    // }
-
-    // printk(KERN_INFO "event len=%d\n", len);
-
-    // return len;
-    return total_event_cnt;
+    return len;
 }
 
 int rr_get_mem_log_list_length(void)
@@ -317,6 +275,7 @@ static int rr_post_handle_event(struct kvm_vcpu *vcpu, rr_event_log *event)
 
 static void rr_insert_event_log(rr_event_log *event)
 {
+    spin_lock(&queue_lock);
     if (rr_event_log_tail == NULL) {
         rr_event_log_head = event;
         rr_event_log_tail = event;
@@ -326,6 +285,8 @@ static void rr_insert_event_log(rr_event_log *event)
     }
 
     rr_event_log_tail->next = NULL;
+
+    spin_unlock(&queue_lock);
 }
 
 // Deprecated: old way of recording exception
@@ -409,28 +370,25 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 
     struct kvm_regs *regs;
     rr_event_log *event_log;
-    rr_interrupt *int_log;
-    lapic_log *lapic = (lapic_log *)opaque;
     unsigned long rip;
+    unsigned int *int_vector = (unsigned int *)opaque;
 
     WARN_ON(is_guest_mode(vcpu));
 
     regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-    int_log = kmalloc(sizeof(rr_interrupt), GFP_KERNEL);
 
-    int_log->vector = lapic->vector;
-
-    event_log->event.interrupt = *int_log;
+    event_log->id = vcpu->vcpu_id;
+    event_log->event.interrupt.vector = *int_vector;
+    event_log->event.interrupt.from = 3;
     event_log->type = EVENT_TYPE_INTERRUPT;
     event_log->next = NULL;
 
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
-    else
-        printk(KERN_INFO "Failed to append int %d\n", event_log->event.interrupt.vector);
+    event_log->inst_cnt = kvm_get_inst_cnt(vcpu);
+
+    rr_insert_event_log(event_log);
 }
 
 // Deprecated: old way of recording cfu
@@ -787,7 +745,7 @@ static void handle_event_dma_done(struct kvm_vcpu *vcpu, void *opaque)
     return;
 }
 
-static void report_record_stat(void)
+static void report_record_stat(int cpu_id)
 {
     rr_event_log *event = rr_event_log_head;
     int event_int_num = 0;
@@ -804,7 +762,8 @@ static void report_record_stat(void)
         if (event->type == EVENT_TYPE_INTERRUPT) {
             event_int_num++;
             // if (event->event.interrupt.lapic.vector == 33)
-            //     printk(KERN_INFO "RR Record: INT RIP=%llx", event->rip);
+            printk(KERN_INFO "RR Interrupt: vecter=%lu RIP=%llx, inst_cnt=%lu",
+                   event->event.interrupt.vector, event->rip, event->inst_cnt);
         }
 
         if (event->type == EVENT_TYPE_SYSCALL) {
@@ -857,40 +816,51 @@ static void report_record_stat(void)
 
     }
 
-    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d, gfu=%d\n",
-            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done, event_gfu);
+    printk(KERN_INFO "CPU %d: syscall=%d, interrupt=%d, pf=%d,"\
+           "io_in=%d, cfu=%d, dma_done=%d, gfu=%d\n",
+           cpu_id, event_syscall_num, event_int_num, event_pf_excep,
+           event_io_in, event_cfu, event_dma_done, event_gfu);
 }
 
-void rr_set_in_record(struct kvm_vcpu *vcpu, int record)
+static void rr_vcpu_set_in_record(struct kvm_vcpu *vcpu, int record)
 {
-    if (record == in_record) {
-        printk(KERN_WARNING "Skip because it's record status is already %d\n", record);
-        return;
-    }
-
-    in_record = record;
-
-    if (!in_record) {
-        report_record_stat();
+    if (!record) {
+        report_record_stat(vcpu->vcpu_id);
 
         kvm_make_request(KVM_REQ_END_RECORD, vcpu);
 
-        rr_event_cur = rr_event_log_head;
-        rr_mem_log_cur = rr_mem_log_head;
-
         vcpu->int_injected = 0;
-
     } else {
-        total_event_cnt = 0;
-
         printk(KERN_INFO "RR initialized\n");
 
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
         vcpu->int_injected = 0;
     }
 
-    rr_clear_mem_log();
+}
 
+void rr_set_in_record(struct kvm *kvm, int record)
+{
+    unsigned long i;
+    struct kvm_vcpu *vcpu;
+
+    in_record = record;
+    total_event_cnt = 0;
+
+    if (in_record) {
+        clear_events();
+    }
+
+    kvm_for_each_vcpu(i, vcpu, kvm) {
+        rr_vcpu_set_in_record(vcpu, record);
+    }
+
+    if (!record) {
+        rr_event_cur = rr_event_log_head;
+        rr_mem_log_cur = rr_mem_log_head;
+    }
+
+    rr_clear_mem_log();
 }
 
 void clear_events(void)
@@ -952,8 +922,11 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     switch (event_type)
     {
     case EVENT_TYPE_INTERRUPT:
-        // handle_event_interrupt(vcpu, opaque);
-        handle_event_interrupt_shm(vcpu, opaque);
+        if (static_call(kvm_x86_get_cpl)(vcpu) > 0 || kvm_get_linear_rip(vcpu) == 0xffffffff81891e70) {
+            handle_event_interrupt(vcpu, opaque);
+        } else {
+            handle_event_interrupt_shm(vcpu, opaque);
+        }
         break;
     case EVENT_TYPE_EXCEPTION:
         handle_event_exception(vcpu, opaque);

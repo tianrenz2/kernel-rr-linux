@@ -8,7 +8,7 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
 int rr_in_record(void);
 int rr_in_replay(void);
-void rr_set_in_record(struct kvm_vcpu *vcpu, int record);
+void rr_set_in_record(struct kvm *kvm, int record);
 void rr_set_in_replay(struct kvm_vcpu *vcpu, int replay);
 void rr_get_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);
 void rr_set_regs(struct kvm_vcpu *vcpu, struct kvm_regs *regs);

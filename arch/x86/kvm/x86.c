@@ -5778,18 +5778,19 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = kvm_vcpu_ioctl_device_attr(vcpu, ioctl, argp);
 		break;
 	case KVM_START_RECORD: {
-		struct rr_record_data record_data;
-		copy_from_user(&record_data, argp, sizeof(record_data));
+		// struct rr_record_data record_data;
+		// copy_from_user(&record_data, argp, sizeof(record_data));
 		
-		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
-
-		rr_register_ivshmem(record_data.shm_base_addr);
-		rr_set_in_record(vcpu, 1);
+		printk(KERN_WARNING "Deprecated API, please use vm_ioctl\n");
+		// rr_register_ivshmem(record_data.shm_base_addr);
+		// rr_set_in_record(vcpu, 1);
 		break;
 	}
 	case KVM_END_RECORD: {
-		printk(KERN_INFO "End recording guest\n");
-		rr_set_in_record(vcpu, 0);
+		// printk(KERN_INFO "End recording guest\n");
+
+		printk(KERN_WARNING "Deprecated API, please use vm_ioctl\n");
+		// rr_set_in_record(vcpu, 0);
 		break;
 	}
 	case KVM_START_REPLAY: {
@@ -5818,14 +5819,15 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		int r;
 
 		r = -EFAULT;
-		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
-		event_info->event_number = rr_get_event_list_length();
-		printk(KERN_INFO "event number = %d\n", event_info->event_number);
+		printk(KERN_WARNING "Deprecated API, please use vm_ioctl\n");
+		// struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
+		// event_info->event_number = rr_get_event_list_length();
+		// printk(KERN_INFO "event number = %d\n", event_info->event_number);
 
-		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
-			goto out;
+		// if (copy_to_user(argp, event_info, sizeof(struct rr_event_info))) {}
+		// 	goto out;
 
-		r = 0;
+		// r = 0;
 		break;
 	}
 	case KVM_GET_RR_MEM_LOG_NUMBER: {
@@ -6748,6 +6750,59 @@ set_pit2_out:
 	case KVM_X86_SET_MSR_FILTER:
 		r = kvm_vm_ioctl_set_msr_filter(kvm, argp);
 		break;
+	case KVM_START_RECORD: {
+		unsigned long i;
+		struct rr_record_data record_data;
+
+		copy_from_user(&record_data, argp, sizeof(record_data));
+		
+		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
+
+		rr_register_ivshmem(record_data.shm_base_addr);
+
+	    rr_set_in_record(kvm, 1);
+
+		r = 0;
+		break;
+	}
+	case KVM_END_RECORD: {
+		printk(KERN_INFO "End recording guest\n");
+
+		rr_set_in_record(kvm, 0);
+
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_EVENT_NUMBER: {
+		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
+		event_info->event_number = rr_get_event_list_length();
+		printk(KERN_INFO "event number = %d\n", event_info->event_number);
+
+		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info))) {
+			printk(KERN_WARNING "Failed to copy event info");
+			goto out;
+		}
+
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_NEXT_EVENT: {
+		struct rr_event_log_t event_log = rr_get_next_event();
+		struct rr_event_log_t __user *user_event_log = argp;		
+
+		if (copy_to_user(user_event_log, &event_log, sizeof(rr_event_log))) {
+			printk(KERN_WARNING "Failed to copy event to user addr\n");
+			goto out;
+		}
+
+		r = 0;
+		break;
+	}
+	case KVM_RR_CLEAR_EVENTS: {		
+		clear_events();
+		r = 0;
+		break;
+	}
 	default:
 		r = -ENOTTY;
 	}
@@ -9456,7 +9511,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = 0;
 		return kvm_skip_emulated_instruction(vcpu);
 	}
-	case KVM_HC_RR_OTHER: {
+	case 17: {
 		if (rr_in_record()) {
 			vcpu->begin_spin_cnt = kvm_get_inst_cnt(vcpu);
 		}
@@ -9464,8 +9519,9 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 	case 18: {
+		unsigned long inst_diff = kvm_get_inst_cnt(vcpu) - vcpu->begin_spin_cnt;
 		if (rr_in_record()) {
-			printk(KERN_INFO "cpu %d spin times: %d, inst number %lu", a0, a1, kvm_get_inst_cnt(vcpu) - vcpu->begin_spin_cnt);
+			BUG_ON(a1 * 3 + 5 != inst_diff);
 		}
 
 		return kvm_skip_emulated_instruction(vcpu);
