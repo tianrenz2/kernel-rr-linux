@@ -8446,7 +8446,7 @@ static int kvm_vcpu_do_singlestep(struct kvm_vcpu *vcpu)
 {
 	struct kvm_run *kvm_run = vcpu->run;
 
-	printk(KERN_INFO "[kvm_vcpu_do_singlestep]\n");
+	// printk(KERN_INFO "[kvm_vcpu_do_singlestep]\n");
 
 	if (vcpu->guest_debug & KVM_GUESTDBG_SINGLESTEP) {
 		kvm_run->debug.arch.dr6 = DR6_BS | DR6_ACTIVE_LOW;

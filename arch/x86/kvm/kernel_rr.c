@@ -46,6 +46,7 @@ const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/cha
 const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
+const unsigned long default_idle_addr = 0xffffffff81891e70;
 
 
 static unsigned long ivshmem_base_addr = 0;
@@ -108,17 +109,13 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 
     rip = kvm_get_linear_rip(vcpu);
 
-    if (rip == 0xffffffff81891e90) {
-        return;
-    }
-
     event.event.interrupt.vector = *int_vector;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = rip;
     event.id = vcpu->vcpu_id;
 
     rr_append_to_queue(&event);
-    // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
+    printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
@@ -917,12 +914,30 @@ lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode)
     return log;
 }
 
+static int get_lock_owner(void) {
+    int cpu_id;
+
+    if (__copy_from_user(&cpu_id, (void __user *)ivshmem_base_addr + sizeof(rr_event_guest_queue_header), sizeof(int))) {
+        printk(KERN_WARNING "Failed to read owern id\n");
+    }
+
+    return cpu_id;
+}
+
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
 {
     switch (event_type)
     {
     case EVENT_TYPE_INTERRUPT:
-        if (static_call(kvm_x86_get_cpl)(vcpu) > 0 || kvm_get_linear_rip(vcpu) == 0xffffffff81891e70) {
+        bool hypervisor_record = false;
+
+        if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
+            hypervisor_record = true;
+        } else if (kvm_get_linear_rip(vcpu) == default_idle_addr && get_lock_owner() != vcpu->vcpu_id) {
+            hypervisor_record = true;
+        }
+
+        if (hypervisor_record) {
             handle_event_interrupt(vcpu, opaque);
         } else {
             handle_event_interrupt_shm(vcpu, opaque);
