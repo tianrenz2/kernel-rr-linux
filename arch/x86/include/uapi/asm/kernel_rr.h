@@ -14,6 +14,9 @@
 #define EVENT_TYPE_GFU       8
 #define EVENT_TYPE_STRNLEN   9
 
+#define EVENT_TYPE_INST_SYNC 12
+
+
 #define CFU_BUFFER_SIZE     4096
 
 enum REGS {

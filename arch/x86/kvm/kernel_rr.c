@@ -47,6 +47,7 @@ const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
 const unsigned long default_idle_addr = 0xffffffff81891e70;
+const unsigned long wait_lock_addr = 0xffffffff8110143c;
 
 
 static unsigned long ivshmem_base_addr = 0;
@@ -924,16 +925,30 @@ static int get_lock_owner(void) {
     return cpu_id;
 }
 
+void rr_sync_inst_cnt(struct kvm_vcpu *vcpu)
+{
+    rr_event_log_guest event = {
+        .type = EVENT_TYPE_INST_SYNC
+    };
+    event.inst_cnt = kvm_get_inst_cnt(vcpu);
+    event.rip = kvm_get_linear_rip(vcpu);
+    event.id = vcpu->vcpu_id;
+
+    rr_append_to_queue(&event);
+}
+
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
 {
     switch (event_type)
     {
     case EVENT_TYPE_INTERRUPT:
         bool hypervisor_record = false;
+        unsigned long addr = kvm_get_linear_rip(vcpu);
 
         if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
             hypervisor_record = true;
-        } else if (kvm_get_linear_rip(vcpu) == default_idle_addr && get_lock_owner() != vcpu->vcpu_id) {
+        } else if ((addr == default_idle_addr || addr == wait_lock_addr) \
+                   && get_lock_owner() != vcpu->vcpu_id) {
             hypervisor_record = true;
         }
 

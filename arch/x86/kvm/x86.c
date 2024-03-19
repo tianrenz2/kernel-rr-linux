@@ -9526,6 +9526,13 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 		return kvm_skip_emulated_instruction(vcpu);
 	}
+
+	case 20: {
+		if (rr_in_record())
+			rr_sync_inst_cnt(vcpu);
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+
 	default:
 		ret = -KVM_ENOSYS;
 		break;

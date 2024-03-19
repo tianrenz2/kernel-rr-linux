@@ -49,4 +49,5 @@ void handle_hypercall_getuser(struct kvm_vcpu *vcpu,
 
 
 void rr_register_ivshmem(unsigned long addr);
+void rr_sync_inst_cnt(struct kvm_vcpu *vcpu);
 #endif /* __KVM_X86_KERNEL_RR_H */
