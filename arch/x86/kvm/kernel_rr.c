@@ -945,11 +945,13 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         bool hypervisor_record = false;
         unsigned long addr = kvm_get_linear_rip(vcpu);
 
-        if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
-            hypervisor_record = true;
-        } else if ((addr == default_idle_addr || addr == wait_lock_addr) \
-                   && get_lock_owner() != vcpu->vcpu_id) {
-            hypervisor_record = true;
+        if (atomic_read(&vcpu->kvm->online_vcpus) > 1) {
+            if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
+                hypervisor_record = true;
+            } else if ((addr == default_idle_addr || addr == wait_lock_addr) \
+                    && get_lock_owner() != vcpu->vcpu_id) {
+                hypervisor_record = true;
+            }
         }
 
         if (hypervisor_record) {

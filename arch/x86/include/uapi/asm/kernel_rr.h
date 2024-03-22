@@ -1,7 +1,7 @@
 #ifndef __KERNEL_RR_H__
 #define __KERNEL_RR_H__
 
-#include <linux/kvm_host.h>
+#include <asm/kvm.h>
 
 #define EVENT_TYPE_INTERRUPT 0
 #define EVENT_TYPE_EXCEPTION 1
@@ -56,7 +56,7 @@ typedef struct {
     unsigned long dest_addr;
     unsigned long len;
     unsigned long rdx;
-    u8 data[CFU_BUFFER_SIZE];
+    unsigned char data[CFU_BUFFER_SIZE];
 } rr_cfu;
 
 typedef struct {
@@ -87,7 +87,7 @@ typedef struct {
 typedef struct {
     unsigned long buf;
     unsigned long len;
-    u8 data[1024];
+    unsigned char data[1024];
 } rr_random;
 
 typedef struct rr_event_log_t{
@@ -103,7 +103,7 @@ typedef struct rr_event_log_t{
         rr_gfu gfu;
     } event;
     struct rr_event_log_t *next;
-    uint64_t inst_cnt;
+    unsigned long inst_cnt;
     unsigned long rip;
 } rr_event_log;
 
