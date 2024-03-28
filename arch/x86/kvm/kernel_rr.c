@@ -120,6 +120,18 @@ EXPORT_SYMBOL_GPL(rr_release_exec);
 
 // ====== SMP Serialization End ========
 
+static unsigned long user_result_buffer;
+
+
+void put_result_buffer(unsigned long user_addr)
+{
+    user_result_buffer = user_addr;
+}
+
+unsigned long get_result_buffer(void)
+{
+    return user_result_buffer;
+}
 
 /* ======== RR shared memory functions =========== */
 
@@ -211,6 +223,7 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 
     // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
     rr_append_to_queue(&event);
+    // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)

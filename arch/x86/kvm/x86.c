@@ -6753,6 +6753,20 @@ set_pit2_out:
 		r = 0;
 		break;
 	}
+	case KVM_GET_RESULT_BUFFER: {	
+		unsigned long __user *inst_cnt = argp;
+		unsigned long result;
+
+		r = -EFAULT;
+
+		result = get_result_buffer();
+
+		if (copy_to_user(inst_cnt, &result, sizeof(unsigned long)))
+			goto out;
+	
+		r = 0;
+		break;
+	}
 	default:
 		r = -ENOTTY;
 	}
@@ -9484,6 +9498,20 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 		return kvm_skip_emulated_instruction(vcpu);
 	}
+
+	case 100: {
+		printk(KERN_INFO "Start record");
+		vcpu->kvm->start_record = true;
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+
+	case 101: {
+		printk(KERN_INFO "End record, result buffer 0x%lx", a0);
+		vcpu->kvm->end_record = true;
+		put_result_buffer(a0);
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+
 	default:
 		ret = -KVM_ENOSYS;
 		break;
@@ -10552,6 +10580,16 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		vcpu->to_acquire = true;
 	}
 	// }
+
+	if (vcpu->kvm->start_record) {
+		vcpu->kvm->start_record = false;
+		r = -100;
+	}
+
+	if (vcpu->kvm->end_record) {
+		vcpu->kvm->end_record = false;
+		r = -101;
+	}
 
 	return r;
 

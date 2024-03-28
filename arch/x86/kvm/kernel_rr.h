@@ -64,4 +64,7 @@ void rr_release_exec(struct kvm_vcpu *vcpu);
 void rr_set_in_record_all(struct kvm *kvm, int record);
 void check_kernel_serialize(struct kvm_vcpu *me);
 void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu);
+void rr_sync_inst_cnt(struct kvm_vcpu *vcpu);
+void put_result_buffer(unsigned long user_addr);
+unsigned long get_result_buffer(void);
 #endif /* __KVM_X86_KERNEL_RR_H */
