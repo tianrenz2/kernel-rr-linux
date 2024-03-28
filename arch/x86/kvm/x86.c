@@ -9780,7 +9780,6 @@ static int inject_pending_event(struct kvm_vcpu *vcpu, bool *req_immediate_exit)
 			kvm_queue_interrupt(vcpu, intr, false);
 			static_call(kvm_x86_set_irq)(vcpu);
 			WARN_ON(static_call(kvm_x86_interrupt_allowed)(vcpu, true) < 0);
-			
 			if (rr_in_record()) {
 				rr_record_event(vcpu, EVENT_TYPE_INTERRUPT, &intr);
 				vcpu->int_injected++;

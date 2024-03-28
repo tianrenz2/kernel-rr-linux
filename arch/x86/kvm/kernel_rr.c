@@ -129,7 +129,7 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.id = vcpu->vcpu_id;
 
     rr_append_to_queue(&event);
-    // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
+    //printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
@@ -966,7 +966,6 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
                 hypervisor_record = true;
             }
         }
-
         if (hypervisor_record) {
             handle_event_interrupt(vcpu, opaque);
         } else {
