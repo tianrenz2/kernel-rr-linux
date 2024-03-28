@@ -52,6 +52,19 @@ const unsigned long wait_lock_addr = 0xffffffff8110143c;
 
 static unsigned long ivshmem_base_addr = 0;
 
+static unsigned long user_result_buffer;
+
+
+void put_result_buffer(unsigned long user_addr)
+{
+    user_result_buffer = user_addr;
+}
+
+unsigned long get_result_buffer(void)
+{
+    return user_result_buffer;
+}
+
 /* ======== RR shared memory functions =========== */
 
 static void rr_append_to_queue(rr_event_log_guest *event_log)
@@ -116,7 +129,7 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.id = vcpu->vcpu_id;
 
     rr_append_to_queue(&event);
-    printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
+    // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
