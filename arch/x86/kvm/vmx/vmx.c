@@ -5713,7 +5713,7 @@ static int handle_rdtsc(struct kvm_vcpu *vcpu)
 	kvm_rax_write(vcpu, (u32)tsc);
 	kvm_rdx_write(vcpu, tsc >> 32);
 
-	if (rr_in_record() && vmx_get_cpl(vcpu) == 0)
+	if (rr_in_record())
 		rr_record_event(vcpu, EVENT_TYPE_RDTSC, &tsc);
 
 	return kvm_skip_emulated_instruction(vcpu);
@@ -6047,8 +6047,7 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	u16 exit_handler_index;
 
 	// if (rr_in_record()) {
-	// // if (vmx_get_cpl(vcpu) == 0)
-	// 	check_kernel_serialize(vcpu);
+		// check_kernel_serialize(vcpu);
 	// }
 
 	/*

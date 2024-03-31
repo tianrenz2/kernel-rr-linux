@@ -86,7 +86,7 @@ static struct timespec64 start_time;
 /* ====== SMP Serialization functions ======== */
 
 static arch_spinlock_t exec_lock = __ARCH_SPIN_LOCK_UNLOCKED;
-int current_owner = -1;
+volatile int current_owner = -1;
 
 void rr_acquire_exec(struct kvm_vcpu *vcpu)
 {
@@ -94,8 +94,11 @@ void rr_acquire_exec(struct kvm_vcpu *vcpu)
         return;
 
     atomic_set(&vcpu->waiting, 1);
+
     arch_spin_lock(&exec_lock);
+
     current_owner = vcpu->vcpu_id;
+    // printk(KERN_INFO "%d acquired lock", current_owner);
     atomic_set(&vcpu->waiting, 0);
 }
 EXPORT_SYMBOL_GPL(rr_acquire_exec);
@@ -106,8 +109,11 @@ void rr_release_exec(struct kvm_vcpu *vcpu)
         return;
 
     atomic_set(&vcpu->waiting, 1);
-    arch_spin_unlock(&exec_lock);
+    // printk(KERN_INFO "%d release lock", current_owner);
+
     current_owner = -1;
+
+    arch_spin_unlock(&exec_lock);
     // printk(KERN_INFO "vcpu %d released the lock", vcpu->vcpu_id);
 }
 EXPORT_SYMBOL_GPL(rr_release_exec);
@@ -127,7 +133,6 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");
     }
-    event_log->id = header.current_pos;
 
     if (header.current_pos == header.total_pos - 1) {
         printk(KERN_WARNING "Shared memory is full\n");
@@ -148,6 +153,27 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
     }
 
     return;
+}
+
+static void rr_init_shm_queue(void)
+{
+    if (!ivshmem_base_addr)
+        return;
+
+    rr_event_guest_queue_header header = {
+        .header_size = PAGE_SIZE,
+        .entry_size = 2 * PAGE_SIZE,
+        .rr_enabled = 0,
+        .current_pos = 0,
+    };
+
+    header.total_pos = (4294967296 - header.header_size) / header.entry_size;
+
+    printk(KERN_INFO "Total position %lu", header.total_pos);
+
+    if (__copy_to_user((void __user *)ivshmem_base_addr, &header, sizeof(rr_event_guest_queue_header))) {
+        printk(KERN_WARNING "Failed to write to user memory\n");
+    }
 }
 
 static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)

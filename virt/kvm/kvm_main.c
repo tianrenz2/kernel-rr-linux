@@ -3381,8 +3381,7 @@ void kvm_vcpu_halt(struct kvm_vcpu *vcpu)
 	bool waited = false;
 	u64 halt_ns;
 
-	if (rr_in_record())
-		rr_release_exec(vcpu);
+	rr_release_exec(vcpu);
 
 	start = cur = poll_end = ktime_get();
 	if (do_halt_poll) {
@@ -3635,7 +3634,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me, bool yield_to_kernel_mode)
 		}
 	}
 
-	if(!yielded && rr_in_record()) {
+	if(yielded) {
 		rr_release_exec(me);
 	}
 

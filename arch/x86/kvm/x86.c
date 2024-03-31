@@ -345,6 +345,7 @@ void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu)
 		printk(KERN_WARNING "Failed to set initial counter\n");
 	}
 }
+EXPORT_SYMBOL_GPL(rr_reset_gp_inst_counter);
 
 static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 {
@@ -5788,21 +5789,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	case KVM_SET_DEVICE_ATTR:
 		r = kvm_vcpu_ioctl_device_attr(vcpu, ioctl, argp);
 		break;
-	case KVM_START_RECORD: {
-		struct rr_record_data record_data;
-		copy_from_user(&record_data, argp, sizeof(record_data));
-		
-		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
-
-		rr_set_in_record(vcpu, 1);
-		rr_register_ivshmem(record_data.shm_base_addr);
-		break;
-	}
-	case KVM_END_RECORD: {
-		printk(KERN_INFO "End recording guest\n");
-		rr_set_in_record(vcpu, 0);
-		break;
-	}
 	case KVM_START_REPLAY: {
 		rr_set_in_replay(vcpu, 1);
 		break;
@@ -5824,35 +5810,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 
 		r = 0;
 		break;
-	}
-	case KVM_GET_RR_EVENT_NUMBER: {
-		int r;
-
-		r = -EFAULT;
-		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
-		event_info->event_number = rr_get_event_list_length();
-		printk(KERN_INFO "event number = %d\n", event_info->event_number);
-
-		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
-			goto out;
-
-		r = 0;
-		break;
-	}
-	case KVM_GET_RR_MEM_LOG_NUMBER: {
-		int r;
-
-		r = -EFAULT;
-		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
-		event_info->event_number = rr_get_mem_log_list_length();
-
-		printk(KERN_INFO "mem log number = %d\n", event_info->event_number);
-
-		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
-			goto out;
-
-		r = 0;
-		break;	
 	}
 	case KVM_GET_RR_NEXT_MEM_LOG: {
 		int r;
@@ -5882,15 +5839,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		int r;
 		
 		rr_record_event(vcpu, EVENT_TYPE_DMA_DONE, NULL);
-
-		r = 0;
-		break;
-	}
-
-	case KVM_RR_CLEAR_EVENTS: {
-		int r;
-		
-		clear_events();
 
 		r = 0;
 		break;
@@ -6758,9 +6706,53 @@ set_pit2_out:
 	case KVM_X86_SET_MSR_FILTER:
 		r = kvm_vm_ioctl_set_msr_filter(kvm, argp);
 		break;
-	case KVM_END_RECORD:
-		rr_set_in_record_all(kvm, 0);
+	case KVM_START_RECORD: {
+		struct rr_record_data record_data;
+		copy_from_user(&record_data, argp, sizeof(record_data));
+		
+		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
+
+		rr_set_in_record_all(kvm, 1);
+		rr_register_ivshmem(record_data.shm_base_addr);
+		r = 0;
 		break;
+	}
+	case KVM_END_RECORD: {
+		rr_set_in_record_all(kvm, 0);
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_EVENT_NUMBER: {
+		r = -EFAULT;
+		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
+		event_info->event_number = rr_get_event_list_length();
+		printk(KERN_INFO "event number = %d\n", event_info->event_number);
+
+		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
+			goto out;
+
+		r = 0;
+		break;
+	}
+	case KVM_GET_RR_MEM_LOG_NUMBER: {
+		r = -EFAULT;
+		struct rr_event_info *event_info = kzalloc(sizeof(struct rr_event_info), GFP_KERNEL);
+		event_info->event_number = rr_get_mem_log_list_length();
+
+		printk(KERN_INFO "mem log number = %d\n", event_info->event_number);
+
+		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info)))
+			goto out;
+
+		r = 0;
+		break;	
+	}
+	case KVM_RR_CLEAR_EVENTS: {		
+		clear_events();
+
+		r = 0;
+		break;
+	}
 	default:
 		r = -ENOTTY;
 	}
@@ -8797,7 +8789,7 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	// if(rr_in_record())
 	// 	printk(KERN_INFO "fast_pio: %lu\n", val);
 
-	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+	if(rr_in_record()) {
 		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
 	}
 
@@ -10309,6 +10301,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			kvm_start_inst_cnt(vcpu);
 		
 		if (kvm_check_request(KVM_REQ_END_RECORD, vcpu)) {
+			printk(KERN_INFO "End record requested");
 			rr_release_exec(vcpu);
 			kvm_stop_inst_cnt(vcpu);
 		}
@@ -10540,25 +10533,25 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
 
-	if (rr_in_record()) {
+	// if (rr_in_record()) {
 
-		vcpu->exit_cnt++;
+	vcpu->exit_cnt++;
 
-		if (vcpu->overflowed) {
-			vcpu->overflowed = false;
-			vcpu->of_cnt++;
-			rr_reset_gp_inst_counter(vcpu);
-			vcpu->executed_inst += ROUND_INSTRUCTION_NUMBER;
-			rr_release_exec(vcpu);
-			vcpu->to_acquire = true;
-		}
-	
-		if (vcpu->run->exit_reason == KVM_EXIT_HLT || vcpu->arch.mp_state == KVM_MP_STATE_HALTED) {
-			// printk(KERN_INFO "Release exec for halt");
-			rr_release_exec(vcpu);
-			vcpu->to_acquire = true;
-		}
+	if (vcpu->overflowed) {
+		vcpu->overflowed = false;
+		vcpu->of_cnt++;
+		rr_reset_gp_inst_counter(vcpu);
+		vcpu->executed_inst += ROUND_INSTRUCTION_NUMBER;
+		rr_release_exec(vcpu);
+		vcpu->to_acquire = true;
 	}
+
+	if (vcpu->run->exit_reason == KVM_EXIT_HLT || vcpu->arch.mp_state == KVM_MP_STATE_HALTED) {
+		// printk(KERN_INFO "Release exec for halt");
+		rr_release_exec(vcpu);
+		vcpu->to_acquire = true;
+	}
+	// }
 
 	return r;
 
@@ -10577,9 +10570,8 @@ static inline int vcpu_block(struct kvm *kvm, struct kvm_vcpu *vcpu)
 {
 	bool hv_timer;
 
-	if(rr_in_record()) {
-		rr_release_exec(vcpu);
-	}
+	rr_release_exec(vcpu);
+
 
 	if (!kvm_arch_vcpu_runnable(vcpu)) {
 		/*
