@@ -338,6 +338,9 @@ void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu)
 
 	unsigned long initial = 0xffffffffffff - ROUND_INSTRUCTION_NUMBER;
 
+	if (atomic_read(&vcpu->kvm->online_vcpus) == 1) {
+		initial = 0;
+	}
 	// unsigned long initial = 0;
 
 	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, initial, false);
