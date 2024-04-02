@@ -80,6 +80,7 @@ const unsigned long uaccess_begin = 0xffffffff811e084c;
 
 
 static unsigned long ivshmem_base_addr = 0;
+static unsigned long user_io = 0;
 
 static struct timespec64 start_time;
 
@@ -208,6 +209,10 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.event.io_input.value = *io_val;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
+
+    if (static_call(kvm_x86_get_cpl)(vcpu) == 3) {
+        user_io++;
+    }
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     if (rr_append_to_queue(&event) < 0){
@@ -253,6 +258,10 @@ static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.event.io_input.value = *tsc_val;
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
+    
+    if (static_call(kvm_x86_get_cpl)(vcpu) == 3) {
+        user_io++;
+    }
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     if (rr_append_to_queue(&event) < 0) {
@@ -946,8 +955,8 @@ static void report_record_stat(void)
 
     }
 
-    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d, gfu=%d\n",
-            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done, event_gfu);
+    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d, gfu=%d, user_io=%lu\n",
+            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done, event_gfu, user_io);
 }
 
 void rr_set_in_record_all(struct kvm *kvm, int record)
@@ -958,6 +967,7 @@ void rr_set_in_record_all(struct kvm *kvm, int record)
     if (record) {
         ktime_get_real_ts64(&start_time);
         printk(KERN_INFO "Start %ld", start_time.tv_sec);
+        user_io = 0;
     }
 
     kvm_for_each_vcpu(i, vcpu, kvm) {
