@@ -157,7 +157,7 @@ static int rr_append_to_queue(rr_event_log_guest *event_log)
         printk(KERN_WARNING "Shared memory is full\n");
 
         header.current_pos = 0;
-        // return -1;
+        // return;
     }
 
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.header_size + \
