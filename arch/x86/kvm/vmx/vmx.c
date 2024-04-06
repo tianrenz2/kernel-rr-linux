@@ -6045,9 +6045,9 @@ static int __vmx_handle_exit(struct kvm_vcpu *vcpu, fastpath_t exit_fastpath)
 	u32 vectoring_info = vmx->idt_vectoring_info;
 	u16 exit_handler_index;
 
-	// if (rr_in_record()) {
-		// check_kernel_serialize(vcpu);
-	// }
+	//if (rr_in_record()) {
+	//    check_kernel_serialize(vcpu);
+	//}
 
 	/*
 	 * Flush logged GPAs PML buffer, this will make dirty_bitmap more
