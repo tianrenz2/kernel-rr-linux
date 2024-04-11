@@ -11,7 +11,7 @@
 #define KERNEL_ENTRY_INTR 0xffffffff81a00c00 // b arch/x86/entry/entry_64.S:226
 #define KERNEL_EXIT_INTR 0xffffffff81a00eed // b arch/x86/entry/entry_64.S:702   
 
-#define ROUND_INSTRUCTION_NUMBER 100000
+#define ROUND_INSTRUCTION_NUMBER 50000
 
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque);
 lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode);
