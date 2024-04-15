@@ -95,7 +95,12 @@ void rr_acquire_exec(struct kvm_vcpu *vcpu)
 
     atomic_set(&vcpu->waiting, 1);
 
-    arch_spin_lock(&exec_lock);
+    while (!arch_spin_trylock(&exec_lock)) {
+    	if (!in_record){
+		printk(KERN_INFO "%d record end", vcpu->vcpu_id);
+		return;
+	}
+    }
 
     current_owner = vcpu->vcpu_id;
     // printk(KERN_INFO "%d acquired lock", current_owner);
