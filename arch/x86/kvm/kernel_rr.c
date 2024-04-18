@@ -771,12 +771,12 @@ static void report_record_stat(int cpu_id)
 
     printk(KERN_WARNING "=== Report recorded events ===\n");
     while (event != NULL) {
-        if (event->type == EVENT_TYPE_INTERRUPT) {
-            event_int_num++;
-            // if (event->event.interrupt.lapic.vector == 33)
-            printk(KERN_INFO "RR Interrupt: vecter=%lu RIP=%llx, inst_cnt=%lu",
-                   event->event.interrupt.vector, event->rip, event->inst_cnt);
-        }
+        // if (event->type == EVENT_TYPE_INTERRUPT) {
+        //     event_int_num++;
+        //     // if (event->event.interrupt.lapic.vector == 33)
+        //     printk(KERN_INFO "RR Interrupt: vecter=%lu RIP=%llx, inst_cnt=%lu",
+        //            event->event.interrupt.vector, event->rip, event->inst_cnt);
+        // }
 
         if (event->type == EVENT_TYPE_SYSCALL) {
             event_syscall_num++;
