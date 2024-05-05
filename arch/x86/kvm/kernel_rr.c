@@ -46,8 +46,8 @@ const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/cha
 const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
-const unsigned long default_idle_addr = 0xffffffff81891e70;
-const unsigned long wait_lock_addr = 0xffffffff8110143c;
+const unsigned long default_idle_addr = 0xffffffff81741feb; // arch/x86/kernel/process.c:731
+const unsigned long wait_lock_addr = 0xffffffff810ee480; //
 
 
 static unsigned long ivshmem_base_addr = 0;
@@ -88,6 +88,7 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
     }
 
     header.current_pos++;
+    header.total_event_cnt++;
 
     if (__copy_to_user((void __user *)ivshmem_base_addr,
         &header, sizeof(rr_event_guest_queue_header))) {
@@ -769,6 +770,12 @@ static void report_record_stat(int cpu_id)
     int event_dma_done = 0;
     int event_gfu = 0;
 
+    rr_event_guest_queue_header header;
+
+    if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
+        printk(KERN_WARNING "Failed to read from user memory\n");
+    }
+
     printk(KERN_WARNING "=== Report recorded events ===\n");
     while (event != NULL) {
         // if (event->type == EVENT_TYPE_INTERRUPT) {
@@ -829,9 +836,9 @@ static void report_record_stat(int cpu_id)
     }
 
     printk(KERN_INFO "CPU %d: syscall=%d, interrupt=%d, pf=%d,"\
-           "io_in=%d, cfu=%d, dma_done=%d, gfu=%d\n",
+           "io_in=%d, cfu=%d, dma_done=%d, gfu=%d, total_event=%lu\n",
            cpu_id, event_syscall_num, event_int_num, event_pf_excep,
-           event_io_in, event_cfu, event_dma_done, event_gfu);
+           event_io_in, event_cfu, event_dma_done, event_gfu, header.total_event_cnt);
 }
 
 static void rr_vcpu_set_in_record(struct kvm_vcpu *vcpu, int record)
