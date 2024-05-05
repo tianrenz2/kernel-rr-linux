@@ -67,7 +67,7 @@ unsigned long get_result_buffer(void)
 
 /* ======== RR shared memory functions =========== */
 
-static void rr_append_to_queue(rr_event_log_guest *event_log)
+static void rr_append_to_queue(rr_event_log_guest *event_log, unsigned long size)
 {
     rr_event_guest_queue_header header;
 
@@ -88,7 +88,7 @@ static void rr_append_to_queue(rr_event_log_guest *event_log)
     }
 
     header.current_pos++;
-    header.total_event_cnt++;
+    header.total_event_cnt+=size;
 
     if (__copy_to_user((void __user *)ivshmem_base_addr,
         &header, sizeof(rr_event_guest_queue_header))) {
@@ -110,7 +110,7 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.id = vcpu->vcpu_id;
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
-    rr_append_to_queue(&event);
+    rr_append_to_queue(&event, sizeof(rr_io_input));
 }
 
 static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
@@ -130,7 +130,7 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.rip = rip;
     event.id = vcpu->vcpu_id;
 
-    rr_append_to_queue(&event);
+    rr_append_to_queue(&event, sizeof(rr_interrupt));
     // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
@@ -147,7 +147,7 @@ static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
     event.id = vcpu->vcpu_id;
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
-    rr_append_to_queue(&event);
+    rr_append_to_queue(&event, sizeof(rr_io_input));
 }
 
 /* =================== */
@@ -657,7 +657,7 @@ void handle_hypercall_random(struct kvm_vcpu *vcpu,
                event_log.event.rand.buf, ret);
     }
 
-    rr_append_to_queue(&event_log);
+    rr_append_to_queue(&event_log, sizeof(rr_random));
 }
 
 void handle_hypercall_cfu(struct kvm_vcpu *vcpu,
@@ -955,7 +955,7 @@ void rr_sync_inst_cnt(struct kvm_vcpu *vcpu)
     event.rip = kvm_get_linear_rip(vcpu);
     event.id = vcpu->vcpu_id;
 
-    rr_append_to_queue(&event);
+    rr_append_to_queue(&event, 0);
 }
 
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
