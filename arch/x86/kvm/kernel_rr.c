@@ -77,6 +77,8 @@ const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/cha
 const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
+const unsigned long default_idle_addr = 0xffffffff81778c0b; // arch/x86/kernel/process.c:731
+const unsigned long wait_lock_addr = 0xffffffff810ee480; //
 
 
 static unsigned long ivshmem_base_addr = 0;
@@ -141,31 +143,44 @@ unsigned long get_result_buffer(void)
 
 /* ======== RR shared memory functions =========== */
 
-static int rr_append_to_queue(rr_event_log_guest *event_log)
+static void rr_append_to_queue(void *event, unsigned long size, int type)
 {
     rr_event_guest_queue_header header;
+    rr_event_entry_header entry_header = {
+        .type = type,
+    };
 
     if (!ivshmem_base_addr)
-        return 0;
+        return;
 
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");
-        return -1;
+        return;
     }
 
-    if (header.current_pos == header.total_pos - 1) {
-        printk(KERN_WARNING "Shared memory is full\n");
-
-        header.current_pos = 0;
-        // return;
+    if (header.current_byte + \
+		sizeof(rr_event_entry_header) + \
+		size > header.total_size) {
+        printk(KERN_ERR "RR queue is full\n");
+        return;
     }
 
-    if (__copy_to_user((void __user *)(ivshmem_base_addr + header.header_size + \
-        header.current_pos * header.entry_size),
-        event_log, sizeof(rr_event_log_guest))) {
+    if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
+        &entry_header, sizeof(rr_event_entry_header))) {
         printk(KERN_WARNING "Failed to copy to user memory\n");
-        return -1;
+        return;
     }
+    header.current_byte += sizeof(rr_event_entry_header);
+
+    if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
+        event, size)) {
+        printk(KERN_WARNING "Failed to copy to user memory\n");
+    }
+    header.current_byte += size;
+
+    // printk(KERN_INFO "[%d]Event %d header %d size %lu loc 0x%lx\n",
+    //        header.current_pos, type, sizeof(rr_event_entry_header),
+    //        size, ivshmem_base_addr + header.current_byte);
 
     header.current_pos++;
 
@@ -173,8 +188,6 @@ static int rr_append_to_queue(rr_event_log_guest *event_log)
         &header, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to copy from user memory\n");
     }
-
-    return 0;
 }
 
 static void rr_init_shm_queue(void)
@@ -204,22 +217,15 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
         return;
 
     unsigned long *io_val = (unsigned long *)opaque;
-    rr_event_log_guest event = {
-        .type = EVENT_TYPE_IO_IN
+    rr_io_input event = {
+        .value = *io_val,
+        .inst_cnt = kvm_get_inst_cnt(vcpu),
+        .rip = kvm_get_linear_rip(vcpu),
+        .id = vcpu->vcpu_id,
     };
-    event.event.io_input.value = *io_val;
-    event.inst_cnt = kvm_get_inst_cnt(vcpu);
-    event.rip = kvm_get_linear_rip(vcpu);
-
-    if (static_call(kvm_x86_get_cpl)(vcpu) == 3) {
-        user_io++;
-    }
     
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
-    if (rr_append_to_queue(&event) < 0){
-        in_record = 0;
-        rr_release_exec(vcpu);
-    }
+    rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_IO_IN);
 }
 
 static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
@@ -228,47 +234,17 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
         return;
 
     unsigned int *int_vector = (unsigned int *)opaque;
-    rr_event_log_guest event = {
-        .type = EVENT_TYPE_INTERRUPT
+    rr_interrupt event = {
+        .id = vcpu->vcpu_id,
+        .vector = *int_vector,
+        .inst_cnt = kvm_get_inst_cnt(vcpu),
+        .rip = kvm_get_linear_rip(vcpu),
     };
 
     WARN_ON(is_guest_mode(vcpu));
 
-    event.event.interrupt.vector = *int_vector;
-    event.inst_cnt = kvm_get_inst_cnt(vcpu);
-    event.rip = kvm_get_linear_rip(vcpu);
-
-    // printk(KERN_INFO "interrupt %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
-    if (rr_append_to_queue(&event) < 0){
-        in_record = 0;
-        rr_release_exec(vcpu);
-    }
+    rr_append_to_queue(&event, sizeof(rr_interrupt), EVENT_TYPE_INTERRUPT);
     // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
-}
-
-static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
-{
-    if (!ivshmem_base_addr)
-        return;
-
-    unsigned long *tsc_val = (unsigned long *)opaque;    
-    rr_event_log_guest event = {
-        .type = EVENT_TYPE_RDTSC
-    };
-
-    event.event.io_input.value = *tsc_val;
-    event.inst_cnt = kvm_get_inst_cnt(vcpu);
-    event.rip = kvm_get_linear_rip(vcpu);
-    
-    if (static_call(kvm_x86_get_cpl)(vcpu) == 3) {
-        user_io++;
-    }
-    
-    // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
-    if (rr_append_to_queue(&event) < 0) {
-        in_record = 0;
-        rr_release_exec(vcpu);
-    }
 }
 
 /* =================== */
@@ -784,8 +760,7 @@ void handle_hypercall_random(struct kvm_vcpu *vcpu,
                event_log.event.rand.buf, ret);
     }
 
-    if (rr_append_to_queue(&event_log) < 0)
-        rr_release_exec(vcpu);
+    rr_append_to_queue(&event_log, sizeof(rr_random), EVENT_TYPE_RANDOM);
 }
 
 void handle_hypercall_cfu(struct kvm_vcpu *vcpu,
@@ -956,8 +931,10 @@ static void report_record_stat(void)
 
     }
 
-    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d, io_in=%d, cfu=%d, dma_done=%d, gfu=%d, user_io=%lu\n",
-            event_syscall_num, event_int_num, event_pf_excep, event_io_in, event_cfu, event_dma_done, event_gfu, user_io);
+    printk(KERN_INFO "syscall=%d, interrupt=%d, pf=%d,"\
+           "io_in=%d, cfu=%d, dma_done=%d, gfu=%d\n",
+           event_syscall_num, event_int_num, event_pf_excep,
+           event_io_in, event_cfu, event_dma_done, event_gfu);
 }
 
 void rr_set_in_record_all(struct kvm *kvm, int record)
@@ -1090,27 +1067,8 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         handle_event_interrupt_shm(vcpu, opaque);
         break;
     case EVENT_TYPE_EXCEPTION:
-        handle_event_exception(vcpu, opaque);
         break;
     case EVENT_TYPE_SYSCALL:
-        handle_event_syscall(vcpu, opaque);
-        break;
-    case EVENT_TYPE_IO_IN:
-        // handle_event_io_in(vcpu, opaque);
-        handle_event_io_in_shm(vcpu, opaque);
-        break;
-    case EVENT_TYPE_CFU:
-        handle_event_cfu(vcpu, opaque);
-        break;
-    case EVENT_TYPE_RANDOM:
-        handle_event_random_generator(vcpu, opaque);
-        break;
-    case EVENT_TYPE_RDTSC:
-        // handle_event_rdtsc(vcpu, opaque);
-        handle_event_rdtsc_shm(vcpu, opaque);
-        break;
-    case EVENT_TYPE_DMA_DONE:
-        handle_event_dma_done(vcpu, opaque);
         break;
     default:
         break;

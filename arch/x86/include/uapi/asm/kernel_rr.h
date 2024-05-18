@@ -13,6 +13,10 @@
 #define EVENT_TYPE_DMA_DONE  7
 #define EVENT_TYPE_GFU       8
 #define EVENT_TYPE_STRNLEN   9
+#define EVENT_TYPE_RDSEED    10
+#define EVENT_TYPE_RELEASE   11
+#define EVENT_TYPE_INST_SYNC 12
+
 
 #define CFU_BUFFER_SIZE     4096
 
@@ -45,10 +49,29 @@ typedef struct {
 } lapic_log;
 
 typedef struct {
+    int id;
     unsigned long value;
+    unsigned long inst_cnt;
+    unsigned long rip;
 } rr_io_input;
 
 typedef struct {
+    int id;
+    int vector;
+    unsigned long ecx;
+    int from;
+    unsigned long spin_count;
+    unsigned long inst_cnt;
+    unsigned long rip;
+} rr_interrupt;
+
+typedef struct {
+    int id;
+    unsigned long val;
+} rr_gfu;
+
+typedef struct {
+    int id;
     unsigned long src_addr;
     unsigned long dest_addr;
     unsigned long len;
@@ -57,17 +80,7 @@ typedef struct {
 } rr_cfu;
 
 typedef struct {
-    unsigned long val;
-} rr_gfu;
-
-typedef struct {
-    unsigned int vector;
-    unsigned long ecx;
-    int from;
-    unsigned long spin_count;
-} rr_interrupt;
-
-typedef struct {
+    int id;
     int exception_index;
     int error_code;
     unsigned long cr2;
@@ -75,11 +88,13 @@ typedef struct {
 } rr_exception;
 
 typedef struct {
+    int id;
     struct kvm_regs regs;
     unsigned long kernel_gsbase, msr_gsbase, cr3;
 } rr_syscall;
 
 typedef struct {
+    int id;
     unsigned long buf;
     unsigned long len;
     unsigned char data[1024];
@@ -127,6 +142,8 @@ typedef struct rr_event_guest_queue_header_t {
     unsigned int header_size;
     unsigned int entry_size;
     unsigned int rr_enabled;
+    unsigned long current_byte;
+    unsigned long total_size;
 } rr_event_guest_queue_header;
 
 
@@ -145,5 +162,10 @@ typedef struct rr_event_log_guest_t {
     unsigned long inst_cnt;
     unsigned long rip;
 } rr_event_log_guest;
+
+
+typedef struct rr_event_entry_header_t {
+    int type;
+} rr_event_entry_header;
 
 #endif
