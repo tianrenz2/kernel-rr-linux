@@ -5803,7 +5803,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_GET_RR_NEXT_EVENT: {
-		int r;
 		struct rr_event_log_t event_log = rr_get_next_event();
 		struct rr_event_log_t __user *user_event_log = argp;		
 
@@ -6473,6 +6472,18 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	} u;
 
 	switch (ioctl) {
+	case KVM_GET_RR_NEXT_EVENT: {
+		struct rr_event_log_t event_log = rr_get_next_event();
+		struct rr_event_log_t __user *user_event_log = argp;
+
+		if (copy_to_user(user_event_log, &event_log, sizeof(rr_event_log))) {
+			printk(KERN_WARNING "Failed to copy event to user addr\n");
+			goto out;
+		}
+
+		r = 0;
+		break;
+	}
 	case KVM_SET_TSS_ADDR:
 		r = kvm_vm_ioctl_set_tss_addr(kvm, arg);
 		break;
@@ -6780,18 +6791,6 @@ set_pit2_out:
 
 		if (copy_to_user(argp, event_info, sizeof(struct rr_event_info))) {
 			printk(KERN_WARNING "Failed to copy event info");
-			goto out;
-		}
-
-		r = 0;
-		break;
-	}
-	case KVM_GET_RR_NEXT_EVENT: {
-		struct rr_event_log_t event_log = rr_get_next_event();
-		struct rr_event_log_t __user *user_event_log = argp;		
-
-		if (copy_to_user(user_event_log, &event_log, sizeof(rr_event_log))) {
-			printk(KERN_WARNING "Failed to copy event to user addr\n");
 			goto out;
 		}
 

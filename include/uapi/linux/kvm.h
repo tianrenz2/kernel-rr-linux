@@ -2063,6 +2063,6 @@ struct kvm_stats_desc {
 #define KVM_RR_MARK_DMA_DONE	 _IO(KVMIO, 0xd9)
 #define KVM_RR_CLEAR_EVENTS	 _IO(KVMIO, 0xe0)
 #define KVM_RR_GET_INST_CNT	 _IOR(KVMIO, 0xe1, unsigned long)
-#define KVM_GET_RESULT_BUFFER _IOR(KVMIO, 0xe1, unsigned long)
+#define KVM_GET_RESULT_BUFFER _IOR(KVMIO, 0xe2, unsigned long)
 
 #endif /* __LINUX_KVM_H */
