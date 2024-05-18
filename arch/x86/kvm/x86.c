@@ -5803,7 +5803,6 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 	case KVM_GET_RR_NEXT_EVENT: {
-		int r;
 		struct rr_event_log_t event_log = rr_get_next_event();
 		struct rr_event_log_t __user *user_event_log = argp;		
 
@@ -6788,7 +6787,9 @@ set_pit2_out:
 	}
 	case KVM_GET_RR_NEXT_EVENT: {
 		struct rr_event_log_t event_log = rr_get_next_event();
-		struct rr_event_log_t __user *user_event_log = argp;		
+		struct rr_event_log_t __user *user_event_log = argp;
+
+		printk(KERN_INFO "KVM_GET_RR_NEXT_EVENT called\n");		
 
 		if (copy_to_user(user_event_log, &event_log, sizeof(rr_event_log))) {
 			printk(KERN_WARNING "Failed to copy event to user addr\n");
