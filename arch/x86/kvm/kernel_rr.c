@@ -161,7 +161,8 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
     if (header.current_byte + \
 		sizeof(rr_event_entry_header) + \
 		size > header.total_size) {
-        printk(KERN_ERR "RR queue is full, drop from start\n");
+        printk(KERN_WARNING "RR queue is full, drop from start, current_byte=%lu\n",
+               header.current_byte);
 
         header.current_byte = header.entry_size;
     }
