@@ -163,7 +163,7 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
 		size > header.total_size) {
         printk(KERN_WARNING "RR queue is full, drop from start, current_byte=%lu\n",
                header.current_byte);
-
+        header.rotated_bytes += header.current_byte;
         header.current_byte = header.entry_size;
     }
 
