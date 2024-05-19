@@ -161,8 +161,9 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
     if (header.current_byte + \
 		sizeof(rr_event_entry_header) + \
 		size > header.total_size) {
-        printk(KERN_ERR "RR queue is full\n");
-        return;
+        printk(KERN_ERR "RR queue is full, drop from start\n");
+
+        header.current_byte = header.entry_size;
     }
 
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
