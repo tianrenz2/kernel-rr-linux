@@ -147,6 +147,7 @@ typedef struct rr_event_guest_queue_header_t {
     unsigned int rr_enabled;
     unsigned long current_byte;
     unsigned long total_size;
+    unsigned long rotated_bytes;
 } rr_event_guest_queue_header;
 
 
