@@ -20,6 +20,8 @@
 
 #define CFU_BUFFER_SIZE     4096
 
+#define INJ_DMA_NET_BUF_BIT 1
+
 enum REGS {
     ZERO,
     RR_RAX,
@@ -63,6 +65,7 @@ typedef struct {
     unsigned long spin_count;
     unsigned long inst_cnt;
     unsigned long rip;
+    int inject_buf_flag;
 } rr_interrupt;
 
 typedef struct {
@@ -166,6 +169,11 @@ typedef struct rr_event_log_guest_t {
     unsigned long inst_cnt;
     unsigned long rip;
 } rr_event_log_guest;
+
+
+typedef struct rr_dma_done_t {
+    unsigned long inst_cnt;
+} rr_dma_done;
 
 
 typedef struct rr_event_entry_header_t {

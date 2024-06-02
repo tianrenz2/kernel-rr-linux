@@ -5894,7 +5894,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = -EFAULT;
 
 		cnt = kvm_get_inst_cnt(vcpu);
-		printk(KERN_INFO "Inst cnt=%lu\n", cnt);
+		// printk(KERN_INFO "Inst cnt=%lu\n", cnt);
 
 		if (copy_to_user(inst_cnt, &cnt, sizeof(unsigned long)))
 			goto out;
@@ -6472,6 +6472,12 @@ long kvm_arch_vm_ioctl(struct file *filp,
 	} u;
 
 	switch (ioctl) {
+	case KVM_INJ_DMA_BUFFER: {
+		set_buffer_inject_flag(INJ_DMA_NET_BUF_BIT);
+		r = 0;
+		break;
+	}
+
 	case KVM_GET_RR_NEXT_EVENT: {
 		struct rr_event_log_t event_log = rr_get_next_event();
 		struct rr_event_log_t __user *user_event_log = argp;

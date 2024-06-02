@@ -54,6 +54,13 @@ static unsigned long ivshmem_base_addr = 0;
 
 static unsigned long user_result_buffer;
 
+static volatile unsigned long buffer_inject_flag = 0;
+
+
+void set_buffer_inject_flag(int bit)
+{
+    set_bit(bit, &buffer_inject_flag);
+}
 
 void put_result_buffer(unsigned long user_addr)
 {
@@ -135,9 +142,14 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
         .vector = *int_vector,
         .inst_cnt = kvm_get_inst_cnt(vcpu),
         .rip = kvm_get_linear_rip(vcpu),
+        .inject_buf_flag = 0,
     };
 
     WARN_ON(is_guest_mode(vcpu));
+
+    if (test_and_clear_bit(INJ_DMA_NET_BUF_BIT, &buffer_inject_flag)) {
+        event.inject_buf_flag |= (1 << (INJ_DMA_NET_BUF_BIT - 1));
+    }
 
     rr_append_to_queue(&event, sizeof(rr_interrupt), EVENT_TYPE_INTERRUPT);
     // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
@@ -747,22 +759,13 @@ static void handle_event_rdtsc(struct kvm_vcpu *vcpu, void *opaque)
     return;
 }
 
-static void handle_event_dma_done(struct kvm_vcpu *vcpu, void *opaque)
+static void handle_event_dma_done_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
-    rr_event_log *event_log;
+    rr_dma_done event = {
+        .inst_cnt = kvm_get_inst_cnt(vcpu),
+    };
 
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-
-    event_log->type = EVENT_TYPE_DMA_DONE;
-    event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
-    event_log->next = NULL;
-
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
-    
-    // printk(KERN_WARNING "Inserted DMA Done\n");
-
-    return;
+    rr_append_to_queue(&event, sizeof(rr_dma_done), EVENT_TYPE_DMA_DONE);
 }
 
 static void report_record_stat(int cpu_id)
@@ -1006,7 +1009,7 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         handle_event_rdtsc_shm(vcpu, opaque);
         break;
     case EVENT_TYPE_DMA_DONE:
-        handle_event_dma_done(vcpu, opaque);
+        handle_event_dma_done_shm(vcpu, opaque);
         break;
     default:
         break;
