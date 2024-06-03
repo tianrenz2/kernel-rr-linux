@@ -46,7 +46,7 @@ const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/cha
 const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
-const unsigned long default_idle_addr = 0xffffffff81778c0b; // arch/x86/kernel/process.c:731
+const unsigned long default_idle_addr = 0xffffffff8184ec8b; // arch/x86/kernel/process.c:731
 const unsigned long wait_lock_addr = 0xffffffff810ee480; //
 
 
@@ -142,14 +142,13 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
         .vector = *int_vector,
         .inst_cnt = kvm_get_inst_cnt(vcpu),
         .rip = kvm_get_linear_rip(vcpu),
-        .inject_buf_flag = 0,
     };
 
     WARN_ON(is_guest_mode(vcpu));
 
-    if (test_and_clear_bit(INJ_DMA_NET_BUF_BIT, &buffer_inject_flag)) {
-        event.inject_buf_flag |= (1 << (INJ_DMA_NET_BUF_BIT - 1));
-    }
+    // if (test_and_clear_bit(INJ_DMA_NET_BUF_BIT, &buffer_inject_flag)) {
+    //     event.inject_buf_flag |= (1 << (INJ_DMA_NET_BUF_BIT - 1));
+    // }
 
     rr_append_to_queue(&event, sizeof(rr_interrupt), EVENT_TYPE_INTERRUPT);
     // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
@@ -762,6 +761,7 @@ static void handle_event_rdtsc(struct kvm_vcpu *vcpu, void *opaque)
 static void handle_event_dma_done_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
     rr_dma_done event = {
+        .id = vcpu->vcpu_id,
         .inst_cnt = kvm_get_inst_cnt(vcpu),
     };
 
@@ -977,7 +977,7 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         if (atomic_read(&vcpu->kvm->online_vcpus) > 1) {
             if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
                 hypervisor_record = true;
-            } else if (get_lock_owner() != vcpu->vcpu_id) {
+            } else if (addr == default_idle_addr || get_lock_owner() != vcpu->vcpu_id) {
                 hypervisor_record = true;
             }
         }
