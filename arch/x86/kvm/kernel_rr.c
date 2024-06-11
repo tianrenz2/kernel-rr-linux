@@ -46,7 +46,7 @@ const unsigned long random_bytes_addr_end = 0xffffffff81533800; // b drivers/cha
 const unsigned long last_removed_addr = 0;
 
 const unsigned long uaccess_begin = 0xffffffff811e084c;
-const unsigned long default_idle_addr = 0xffffffff8184ec8b; // arch/x86/kernel/process.c:731
+const unsigned long default_idle_addr = 0xffffffff81741feb; // arch/x86/kernel/process.c:731
 const unsigned long wait_lock_addr = 0xffffffff810ee480; //
 
 
@@ -91,8 +91,10 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
         printk(KERN_WARNING "RR queue is full, drop from start, current_byte=%lu\n",
                header.current_byte);
         header.rotated_bytes += header.current_byte;
-        header.current_byte = header.entry_size;
+        header.current_byte = header.header_size;
     }
+
+    printk(KERN_INFO "Copy addr 0x%lx\n", ivshmem_base_addr + header.current_byte);
 
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
         &entry_header, sizeof(rr_event_entry_header))) {
@@ -406,7 +408,6 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
 
     WARN_ON(is_guest_mode(vcpu));
 
-    regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
 
     event_log->id = vcpu->vcpu_id;
@@ -762,8 +763,11 @@ static void handle_event_dma_done_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
     rr_dma_done event = {
         .id = vcpu->vcpu_id,
+        // When vcpu is in user mode, inst_cnt might be 0.
         .inst_cnt = kvm_get_inst_cnt(vcpu),
     };
+
+    WARN_ON(is_guest_mode(vcpu));
 
     rr_append_to_queue(&event, sizeof(rr_dma_done), EVENT_TYPE_DMA_DONE);
 }
@@ -788,12 +792,12 @@ static void report_record_stat(int cpu_id)
 
     printk(KERN_WARNING "=== Report recorded events ===\n");
     while (event != NULL) {
-        // if (event->type == EVENT_TYPE_INTERRUPT) {
-        //     event_int_num++;
+        if (event->type == EVENT_TYPE_INTERRUPT) {
+            event_int_num++;
         //     // if (event->event.interrupt.lapic.vector == 33)
         //     printk(KERN_INFO "RR Interrupt: vecter=%lu RIP=%llx, inst_cnt=%lu",
         //            event->event.interrupt.vector, event->rip, event->inst_cnt);
-        // }
+        }
 
         if (event->type == EVENT_TYPE_SYSCALL) {
             event_syscall_num++;
@@ -949,8 +953,8 @@ lapic_log* create_lapic_log(int delivery_mode, int vector, int trig_mode)
 static int get_lock_owner(void) {
     int cpu_id;
 
-    if (__copy_from_user(&cpu_id, (void __user *)ivshmem_base_addr + sizeof(rr_event_guest_queue_header), sizeof(int))) {
-        printk(KERN_WARNING "Failed to read owern id\n");
+    if (get_user(cpu_id, (int __user *)(ivshmem_base_addr + sizeof(rr_event_guest_queue_header)))) {
+        printk(KERN_WARNING "Failed to read owner id\n");
     }
 
     return cpu_id;
@@ -975,9 +979,7 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         unsigned long addr = kvm_get_linear_rip(vcpu);
 
         if (atomic_read(&vcpu->kvm->online_vcpus) > 1) {
-            if (static_call(kvm_x86_get_cpl)(vcpu) > 0) {
-                hypervisor_record = true;
-            } else if (addr == default_idle_addr || get_lock_owner() != vcpu->vcpu_id) {
+            if (static_call(kvm_x86_get_cpl)(vcpu) > 0 || get_lock_owner() != vcpu->vcpu_id) {
                 hypervisor_record = true;
             }
         }

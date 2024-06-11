@@ -6773,7 +6773,8 @@ set_pit2_out:
 
 		copy_from_user(&record_data, argp, sizeof(record_data));
 		
-		printk(KERN_INFO "Start recording guest, shm addr=0x%lx\n", record_data.shm_base_addr);
+		printk(KERN_INFO "Start recording guest, shm addr=0x%lx, header size=%lu\n",
+			   record_data.shm_base_addr, sizeof(rr_event_guest_queue_header));
 
 		rr_register_ivshmem(record_data.shm_base_addr);
 

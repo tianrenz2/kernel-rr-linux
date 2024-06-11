@@ -104,6 +104,11 @@ typedef struct {
     unsigned char data[1024];
 } rr_random;
 
+typedef struct rr_dma_done_t {
+    int id;
+    unsigned long inst_cnt;
+} rr_dma_done;
+
 typedef struct rr_event_log_t{
     int type;
     int id;
@@ -115,6 +120,7 @@ typedef struct rr_event_log_t{
         rr_cfu cfu;
         rr_random rand;
         rr_gfu gfu;
+        rr_dma_done dma_done;
     } event;
     struct rr_event_log_t *next;
     unsigned long inst_cnt;
@@ -169,11 +175,6 @@ typedef struct rr_event_log_guest_t {
     unsigned long rip;
 } rr_event_log_guest;
 
-
-typedef struct rr_dma_done_t {
-    int id;
-    unsigned long inst_cnt;
-} rr_dma_done;
 
 
 typedef struct rr_event_entry_header_t {
