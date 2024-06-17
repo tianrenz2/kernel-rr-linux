@@ -10642,6 +10642,13 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		r = -101;
 	}
 
+	if (rr_in_record()) {
+		if (static_call(kvm_x86_get_cpl)(vcpu) > 0)
+			vcpu->run->userspace = 1;
+		else
+			vcpu->run->userspace = 0;
+	}
+
 	return r;
 
 cancel_injection:

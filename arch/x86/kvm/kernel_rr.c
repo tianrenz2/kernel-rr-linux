@@ -94,8 +94,6 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
         header.current_byte = header.header_size;
     }
 
-    printk(KERN_INFO "Copy addr 0x%lx\n", ivshmem_base_addr + header.current_byte);
-
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
         &entry_header, sizeof(rr_event_entry_header))) {
         printk(KERN_WARNING "Failed to copy to user memory\n");
