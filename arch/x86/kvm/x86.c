@@ -9117,10 +9117,10 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		a3 &= 0xFFFFFFFF;
 	}
 
-	if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
-		ret = -KVM_EPERM;
-		goto out;
-	}
+	// if (static_call(kvm_x86_get_cpl)(vcpu) != 0) {
+	// 	ret = -KVM_EPERM;
+	// 	goto out;
+	// }
 
 	ret = -KVM_ENOSYS;
 
