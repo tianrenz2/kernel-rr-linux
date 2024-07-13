@@ -15,6 +15,8 @@
 
 #include "kernel_rr.h"
 
+#define QUEUE_SIZE_MB 4096;
+
 int in_record = 0;
 int in_replay = 0;
 
@@ -161,10 +163,10 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
     if (header.current_byte + \
 		sizeof(rr_event_entry_header) + \
 		size > header.total_size) {
-        printk(KERN_WARNING "RR queue is full, drop from start, current_byte=%lu\n",
-               header.current_byte);
+        printk(KERN_WARNING "RR queue is full, drop from start, current_byte=%lu, total_size=%lu\n",
+               header.current_byte, header.total_size);
         header.rotated_bytes += header.current_byte;
-        header.current_byte = header.entry_size;
+        header.current_byte = header.header_size;
     }
 
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
@@ -194,6 +196,11 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
 
 static void rr_init_shm_queue(void)
 {
+    unsigned long index = 0;
+    unsigned long total_size = QUEUE_SIZE_MB;
+
+    total_size *= 1048576;
+
     if (!ivshmem_base_addr)
         return;
 
@@ -202,15 +209,27 @@ static void rr_init_shm_queue(void)
         .entry_size = 2 * PAGE_SIZE,
         .rr_enabled = 0,
         .current_pos = 0,
+        .current_byte = PAGE_SIZE,
+        .total_size = total_size,
     };
 
-    header.total_pos = (4294967296 - header.header_size) / header.entry_size;
+    header.total_pos = (header.total_size - header.header_size) / header.entry_size;
 
     printk(KERN_INFO "Total position %lu", header.total_pos);
+
+    index = header.header_size;
 
     if (__copy_to_user((void __user *)ivshmem_base_addr, &header, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to write to user memory\n");
     }
+
+    // Warmup memory
+    while (index < header.total_size) {
+        __copy_to_user((void __user *)ivshmem_base_addr + index, &header, sizeof(rr_event_guest_queue_header));
+        index += PAGE_SIZE;
+    }
+
+    printk("Shared queue warmup done, total_size=%lu, total=%lu", header.total_size, total_size);
 }
 
 static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
@@ -1172,6 +1191,8 @@ void rr_register_ivshmem(unsigned long addr)
 
     if (!ivshmem_base_addr)
         return;
+
+    rr_init_shm_queue();
 
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");
