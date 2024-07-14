@@ -2050,6 +2050,6 @@ struct kvm_stats_desc {
 #define KVM_GET_XSAVE2		  _IOR(KVMIO,  0xcf, struct kvm_xsave)
 
 
-#define KVM_GET_RESULT_BUFFER _IOR(KVMIO, 0xe1, unsigned long)
+#define KVM_GET_RESULT_BUFFER _IOR(KVMIO, 0xe2, unsigned long)
 
 #endif /* __LINUX_KVM_H */
