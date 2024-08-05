@@ -4921,6 +4921,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 	switch (ex_no) {
 	case DB_VECTOR:
 		dr6 = vmx_get_exit_qual(vcpu);
+		printk(KERN_INFO "singlestep %lu", kvm_get_inst_cnt(vcpu));
 		if (!(vcpu->guest_debug &
 		      (KVM_GUESTDBG_SINGLESTEP | KVM_GUESTDBG_USE_HW_BP))) {
 		
@@ -4964,6 +4965,7 @@ static int handle_exception_nmi(struct kvm_vcpu *vcpu)
 		 * user space while in guest debugging mode. Reading it for
 		 * #DB as well causes no harm, it is not used in that case.
 		 */
+		printk(KERN_INFO "breakpoint %lu", kvm_get_inst_cnt(vcpu));
 		vmx->vcpu.arch.event_exit_inst_len =
 			vmcs_read32(VM_EXIT_INSTRUCTION_LEN);
 		kvm_run->exit_reason = KVM_EXIT_DEBUG;

@@ -399,6 +399,7 @@ u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 
 	return vcpu->executed_inst + (cur + ROUND_INSTRUCTION_NUMBER) - 0xffffffffffff;
 }
+EXPORT_SYMBOL_GPL(kvm_get_inst_cnt);
 
 
 void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
@@ -7600,6 +7601,11 @@ static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
 	}
 
 	complete_emulator_pio_in(vcpu, val);
+
+	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+		rr_record_event(vcpu, EVENT_TYPE_IO_IN, val);
+	}
+
 	return 1;
 }
 
@@ -8800,13 +8806,6 @@ static int complete_fast_pio_in(struct kvm_vcpu *vcpu)
 	 */
 	emulator_pio_in(vcpu, vcpu->arch.pio.size, vcpu->arch.pio.port, &val, 1);
 	kvm_rax_write(vcpu, val);
-
-	// if(rr_in_record())
-	// 	printk(KERN_INFO "fast_pio: %lu\n", val);
-
-	if(rr_in_record()) {
-		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &val);
-	}
 
 	return kvm_skip_emulated_instruction(vcpu);
 }
