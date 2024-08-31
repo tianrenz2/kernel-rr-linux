@@ -70,6 +70,7 @@ typedef struct {
 typedef struct {
     int id;
     unsigned long val;
+    unsigned long ptr;
 } rr_gfu;
 
 typedef struct {
@@ -78,7 +79,7 @@ typedef struct {
     unsigned long dest_addr;
     unsigned long len;
     unsigned long rdx;
-    unsigned char data[CFU_BUFFER_SIZE];
+    unsigned char *data;
 } rr_cfu;
 
 typedef struct {
