@@ -146,6 +146,8 @@ struct rr_event_info {
 
 struct rr_record_data {
     unsigned long shm_base_addr;
+    int enable_trace;
+    unsigned long trace_interval;
 };
 
 typedef struct rr_event_guest_queue_header_t {
@@ -181,5 +183,7 @@ typedef struct rr_event_log_guest_t {
 typedef struct rr_event_entry_header_t {
     int type;
 } rr_event_entry_header;
+
+#define ROUND_INSTRUCTION_NUMBER 50000
 
 #endif

@@ -377,6 +377,13 @@ struct kvm_vcpu {
 	uint64_t last_inst_cnt;
 	int bp_exit;
 	unsigned long begin_spin_cnt;
+
+	int enable_trace;
+	unsigned long trace_interval;
+	bool overflowed;
+	unsigned long executed_inst;
+	unsigned long baseline_inst;
+	bool checkpoint;
 };
 
 /*
@@ -2226,3 +2233,5 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 #define  KVM_DIRTY_RING_MAX_ENTRIES  65536
 
 #endif
+
+void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow);

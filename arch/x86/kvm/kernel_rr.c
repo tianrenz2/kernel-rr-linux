@@ -853,7 +853,7 @@ static void report_record_stat(int cpu_id)
            event_io_in, event_cfu, event_dma_done, event_gfu);
 }
 
-static void rr_vcpu_set_in_record(struct kvm_vcpu *vcpu, int record)
+static void rr_vcpu_set_in_record(struct kvm_vcpu *vcpu, int record, struct rr_record_data data)
 {
     if (!record) {
         report_record_stat(vcpu->vcpu_id);
@@ -866,11 +866,19 @@ static void rr_vcpu_set_in_record(struct kvm_vcpu *vcpu, int record)
 
         kvm_make_request(KVM_REQ_START_RECORD, vcpu);
         vcpu->int_injected = 0;
+
+        vcpu->enable_trace = data.enable_trace;
+        vcpu->trace_interval = data.trace_interval;
+        vcpu->executed_inst = 0;
+        vcpu->checkpoint = false;
+        vcpu->overflowed = false;
+        if (vcpu->enable_trace)
+            printk(KERN_INFO "RR trace enabled, interval is %lu\n", vcpu->trace_interval);
     }
 
 }
 
-void rr_set_in_record(struct kvm *kvm, int record)
+void rr_set_in_record(struct kvm *kvm, int record, struct rr_record_data data)
 {
     unsigned long i;
     struct kvm_vcpu *vcpu;
@@ -883,7 +891,7 @@ void rr_set_in_record(struct kvm *kvm, int record)
     }
 
     kvm_for_each_vcpu(i, vcpu, kvm) {
-        rr_vcpu_set_in_record(vcpu, record);
+        rr_vcpu_set_in_record(vcpu, record, data);
     }
 
     if (!record) {

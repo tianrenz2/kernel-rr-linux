@@ -331,6 +331,34 @@ static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
 }
 
+void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow)
+{
+	int r0;
+	unsigned long initial = vcpu->baseline_inst + 1;
+	unsigned long inst_cnt;
+
+	if (overflow) {
+		inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+		if (inst_cnt > 0) {
+			if (inst_cnt < vcpu->baseline_inst)
+				vcpu->executed_inst += inst_cnt;
+			else
+				vcpu->executed_inst += (inst_cnt - vcpu->baseline_inst);
+		}
+		vcpu->executed_inst += vcpu->trace_interval;
+		vcpu->checkpoint = true;
+	} else {
+		vcpu->executed_inst = 0;
+		vcpu->checkpoint = false;
+	}
+
+	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, initial, false);
+	if (r0 != 0) {
+		printk(KERN_WARNING "Failed to set initial counter\n");
+	}
+}
+EXPORT_SYMBOL_GPL(rr_reset_gp_inst_counter);
+
 static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 {
 	int r0, r1, r2;
@@ -348,11 +376,17 @@ static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 
 	if (!kernel_only)
 		gp_ctrl |= ARCH_PERFMON_EVENTSEL_USR;
-
+	
 	// Setting up MSRs for performance counting.
 	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, 0, false);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
 	r2 = __kvm_set_msr(vcpu, MSR_P6_EVNTSEL0, gp_ctrl, false);
+
+	if (vcpu->enable_trace) {
+		vcpu->baseline_inst = 0xffffffffffff - vcpu->trace_interval;
+		rr_reset_gp_inst_counter(vcpu, false);
+		printk(KERN_INFO "Trace enabled, initial inst cnt %lu", kvm_get_inst_cnt(vcpu));
+	}
 }
 
 static void rr_disable_counters(struct kvm_vcpu *vcpu)
@@ -374,7 +408,21 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 
 u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 {
-	return kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	unsigned long inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+
+	if (unlikely(vcpu->enable_trace)) {
+		if (inst_cnt < vcpu->baseline_inst) {
+			// There are cases when event record tries to the instruction number, but
+			// overflow just happened and has not been reset yet. If inst_cnt < vcpu->baseline_inst
+			// then it means this happened, we should return a correct inst number.
+			// printk(KERN_WARNING "Unexpected inst_cnt %lu < baseline %lu", inst_cnt, vcpu->baseline_inst);
+			return vcpu->executed_inst + vcpu->trace_interval + inst_cnt;
+		}
+
+		return vcpu->executed_inst + (inst_cnt - vcpu->baseline_inst - 1);
+	}
+
+	return inst_cnt;
 }
 EXPORT_SYMBOL_GPL(kvm_get_inst_cnt);
 
@@ -386,7 +434,7 @@ void kvm_stop_inst_cnt(struct kvm_vcpu *vcpu)
 
 	vcpu->in_hype = false;
 
-	new_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	new_cnt = kvm_get_inst_cnt(vcpu);
 	rr_disable_counters(vcpu);
 
 	printk(KERN_WARNING "==== Finished Hype ====\n");
@@ -6779,15 +6827,16 @@ set_pit2_out:
 
 		rr_register_ivshmem(record_data.shm_base_addr);
 
-	    rr_set_in_record(kvm, 1);
+	    rr_set_in_record(kvm, 1, record_data);
 
 		r = 0;
 		break;
 	}
 	case KVM_END_RECORD: {
+		struct rr_record_data record_data;
 		printk(KERN_INFO "End recording guest\n");
 
-		rr_set_in_record(kvm, 0);
+		rr_set_in_record(kvm, 0, record_data);
 
 		r = 0;
 		break;
@@ -10262,6 +10311,13 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto out;
 	}
 
+	// An overflowed of PMU happens, which means it has reached the
+	// chckpoint for our verification.
+	if (vcpu->overflowed) {
+		rr_reset_gp_inst_counter(vcpu, true);
+		vcpu->overflowed = false;
+	}
+
 	if (kvm_request_pending(vcpu)) {
 		if (kvm_check_request(KVM_REQ_VM_DEAD, vcpu)) {
 			r = -EIO;
@@ -10419,6 +10475,13 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			update_cr8_intercept(vcpu);
 			kvm_lapic_sync_to_vapic(vcpu);
 		}
+	}
+
+	if (vcpu->checkpoint) {
+		vcpu->checkpoint = false;
+		vcpu->run->exit_reason = KVM_EXIT_RR_CP;
+		r = -102;
+		goto out;
 	}
 
 	r = kvm_mmu_reload(vcpu);
@@ -10614,22 +10677,6 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		kvm_lapic_sync_from_vapic(vcpu);
 
 	r = static_call(kvm_x86_handle_exit)(vcpu, exit_fastpath);
-
-	// if (vcpu->run->exit_reason == KVM_EXIT_DEBUG) {
-	// 	if (rr_in_record()) {
-	// 		uint64_t inst_cnt = kvm_get_inst_cnt(vcpu);
-	// 		unsigned long rip = kvm_get_linear_rip(vcpu);
-	// 		// if (inst_cnt == vcpu->last_inst_cnt) {
-	// 		// 	printk(KERN_WARNING "repeatitive inst cnt\n");
-	// 		// }
-	// 		// printk(KERN_INFO "singlestep: inst cnt=%lu, rip=%lx\n", inst_cnt, rip);
-
-	// 		vcpu->last_rip = rip;
-	// 		vcpu->last_inst_cnt = inst_cnt;
-
-	// 		rr_handle_breakpoint(vcpu);
-	// 	}
-	// }
 
 	if (vcpu->kvm->start_record) {
 		vcpu->kvm->start_record = false;
