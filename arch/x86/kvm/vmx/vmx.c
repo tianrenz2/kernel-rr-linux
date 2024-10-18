@@ -7466,7 +7466,7 @@ static __init void vmx_set_cpu_caps(void)
 	printk(KERN_INFO "RR Disbled xsaves and xavec for RR, mark\n");
 	// else
 	// 	printk(KERN_INFO "xsamve enabled\n");
-	// kvm_cpu_cap_set(X86_FEATURE_XSAVEOPT);
+	kvm_cpu_cap_set(X86_FEATURE_XSAVEOPT);
 
 	/* CPUID 0x80000001 and 0x7 (RDPID) */
 	if (!cpu_has_vmx_rdtscp()) {

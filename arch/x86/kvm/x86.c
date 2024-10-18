@@ -331,7 +331,7 @@ static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
 }
 
-void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow)
+void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow, bool breakpoint)
 {
 	int r0;
 	unsigned long initial = vcpu->baseline_inst + 1;
@@ -340,17 +340,28 @@ void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow)
 	if (overflow) {
 		inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
 		if (inst_cnt > 0) {
-			if (inst_cnt < vcpu->baseline_inst)
+			if (inst_cnt < initial) {
 				vcpu->executed_inst += inst_cnt;
-			else
-				vcpu->executed_inst += (inst_cnt - vcpu->baseline_inst);
+				vcpu->executed_inst += vcpu->trace_interval;
+				vcpu->checkpoint = true;
+				// printk(KERN_WARNING "overflowed inst %lu, current inst=%lu", inst_cnt, vcpu->executed_inst);
+			} else {
+				if (breakpoint)
+					vcpu->executed_inst += (inst_cnt - initial);
+				else
+					vcpu->executed_inst += (inst_cnt - initial);
+			}
+		} else {
+			vcpu->executed_inst += vcpu->trace_interval;
+			vcpu->checkpoint = true;
 		}
-		vcpu->executed_inst += vcpu->trace_interval;
-		vcpu->checkpoint = true;
 	} else {
 		vcpu->executed_inst = 0;
 		vcpu->checkpoint = false;
 	}
+
+	// if (breakpoint)
+	// 	printk(KERN_INFO "breakpoint inst=%lu, exc_inst=%lu", inst_cnt, vcpu->executed_inst);
 
 	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, initial, false);
 	if (r0 != 0) {
@@ -358,6 +369,11 @@ void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow)
 	}
 }
 EXPORT_SYMBOL_GPL(rr_reset_gp_inst_counter);
+
+static void rr_reset_gp_inst_interval(struct kvm_vcpu *vcpu, unsigned long interval)
+{
+	vcpu->trace_interval = interval;
+}
 
 static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 {
@@ -384,7 +400,7 @@ static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 
 	if (vcpu->enable_trace) {
 		vcpu->baseline_inst = 0xffffffffffff - vcpu->trace_interval;
-		rr_reset_gp_inst_counter(vcpu, false);
+		rr_reset_gp_inst_counter(vcpu, false, false);
 		printk(KERN_INFO "Trace enabled, initial inst cnt %lu", kvm_get_inst_cnt(vcpu));
 	}
 }
@@ -5952,6 +5968,19 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		break;
 	}
 
+	case KVM_RESET_COUNTER: {
+		rr_reset_gp_inst_counter(vcpu, true, true);
+		r = 0;
+		break;
+	}
+
+	case KVM_RESET_INTERVAL: {
+		unsigned long interval;
+		copy_from_user(&interval, argp, sizeof(unsigned long));
+		rr_reset_gp_inst_interval(vcpu, interval);
+		r = 0;
+		break;
+	}
 
 	default:
 		printk(KERN_WARNING "Invalid type %lu\n", ioctl);
@@ -10314,7 +10343,7 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	// An overflowed of PMU happens, which means it has reached the
 	// chckpoint for our verification.
 	if (vcpu->overflowed) {
-		rr_reset_gp_inst_counter(vcpu, true);
+		rr_reset_gp_inst_counter(vcpu, true, false);
 		vcpu->overflowed = false;
 	}
 

@@ -2234,4 +2234,4 @@ static inline void kvm_handle_signal_exit(struct kvm_vcpu *vcpu)
 
 #endif
 
-void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow);
+void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow, bool breakpoint);

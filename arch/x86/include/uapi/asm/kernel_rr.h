@@ -65,12 +65,15 @@ typedef struct {
     unsigned long spin_count;
     unsigned long inst_cnt;
     unsigned long rip;
+    struct kvm_regs regs;
 } rr_interrupt;
+
 
 typedef struct {
     int id;
     unsigned long val;
     unsigned long ptr;
+    int size;
 } rr_gfu;
 
 typedef struct {
@@ -126,7 +129,41 @@ typedef struct rr_event_log_t{
     struct rr_event_log_t *next;
     unsigned long inst_cnt;
     unsigned long rip;
+    int user_mode;
 } rr_event_log;
+
+typedef struct rr_event_log_guest_t {
+    int type;
+    int id;
+    union {
+        rr_interrupt interrupt;
+        rr_exception exception;
+        rr_syscall  syscall;
+        rr_io_input io_input;
+        rr_cfu cfu;
+        rr_random rand;
+        rr_gfu gfu;
+    } event;
+    unsigned long inst_cnt;
+    unsigned long rip;
+} rr_event_log_guest;
+
+
+typedef struct rr_event_guest_queue_header_t {
+    unsigned int current_pos;
+    unsigned int total_pos;
+    unsigned int header_size;
+    unsigned int entry_size;
+    unsigned int rr_enabled;
+    unsigned long current_byte;
+    unsigned long total_size;
+    unsigned long rotated_bytes;
+} rr_event_guest_queue_header;
+
+typedef struct rr_event_entry_header_t {
+    int type;
+} rr_event_entry_header;
+
 
 typedef struct rr_mem_access_log_t {
     unsigned long gpa;
@@ -149,40 +186,6 @@ struct rr_record_data {
     int enable_trace;
     unsigned long trace_interval;
 };
-
-typedef struct rr_event_guest_queue_header_t {
-    unsigned int current_pos;
-    unsigned int total_pos;
-    unsigned int header_size;
-    unsigned int entry_size;
-    unsigned int rr_enabled;
-    unsigned long current_byte;
-    unsigned long total_size;
-    unsigned long rotated_bytes;
-} rr_event_guest_queue_header;
-
-
-typedef struct rr_event_log_guest_t {
-    int type;
-    int id;
-    union {
-        rr_interrupt interrupt;
-        rr_exception exception;
-        rr_syscall  syscall;
-        rr_io_input io_input;
-        rr_cfu cfu;
-        rr_random rand;
-        rr_gfu gfu;
-    } event;
-    unsigned long inst_cnt;
-    unsigned long rip;
-} rr_event_log_guest;
-
-
-
-typedef struct rr_event_entry_header_t {
-    int type;
-} rr_event_entry_header;
 
 #define ROUND_INSTRUCTION_NUMBER 50000
 

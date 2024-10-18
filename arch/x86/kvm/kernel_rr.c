@@ -144,6 +144,8 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
         .rip = kvm_get_linear_rip(vcpu),
     };
 
+    rr_get_regs(vcpu, &event.regs);
+
     WARN_ON(is_guest_mode(vcpu));
 
     // if (test_and_clear_bit(INJ_DMA_NET_BUF_BIT, &buffer_inject_flag)) {
@@ -151,6 +153,11 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
     // }
 
     rr_append_to_queue(&event, sizeof(rr_interrupt), EVENT_TYPE_INTERRUPT);
+
+    if (vcpu->enable_trace) {
+        if (static_call(kvm_x86_get_cpl)(vcpu) == 0)
+            rr_reset_gp_inst_counter(vcpu, true, false);
+    }
     // printk(KERN_INFO "interrupt in kernel %d: inst=%lu\n", event.event.interrupt.vector, event.inst_cnt);
 }
 
@@ -215,8 +222,8 @@ __maybe_unused static void rr_record_regs(struct kvm_regs *dest_regs, struct kvm
     dest_regs->r14 = src_regs->r14;
     dest_regs->r15 = src_regs->r15;
 
-    dest_regs->rip = src_regs->rip;
-    dest_regs->rflags = src_regs->rflags;
+    // dest_regs->rip = src_regs->rip;
+    // dest_regs->rflags = src_regs->rflags;
 }
 
 int rr_get_event_list_length(void)
@@ -331,7 +338,6 @@ static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
     event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
 
     except = (rr_exception *)opaque;
-
 
     rr_get_regs(vcpu, regs);
 
