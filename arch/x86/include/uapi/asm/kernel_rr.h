@@ -63,11 +63,15 @@ typedef struct {
     unsigned long spin_count;
     unsigned long inst_cnt;
     unsigned long rip;
+    struct kvm_regs regs;
 } rr_interrupt;
+
 
 typedef struct {
     int id;
     unsigned long val;
+    unsigned long ptr;
+    int size;
 } rr_gfu;
 
 typedef struct {
@@ -76,7 +80,7 @@ typedef struct {
     unsigned long dest_addr;
     unsigned long len;
     unsigned long rdx;
-    unsigned char data[CFU_BUFFER_SIZE];
+    unsigned char *data;
 } rr_cfu;
 
 typedef struct {
@@ -85,12 +89,14 @@ typedef struct {
     int error_code;
     unsigned long cr2;
     struct kvm_regs regs;
+    unsigned long spin_count;
 } rr_exception;
 
 typedef struct {
     int id;
     struct kvm_regs regs;
     unsigned long kernel_gsbase, msr_gsbase, cr3;
+    unsigned long spin_count;
 } rr_syscall;
 
 typedef struct {
@@ -100,8 +106,34 @@ typedef struct {
     unsigned char data[1024];
 } rr_random;
 
+typedef struct rr_dma_done_t {
+    int id;
+    unsigned long inst_cnt;
+} rr_dma_done;
+
+
 typedef struct rr_event_log_t{
     int type;
+    int id;
+    union {
+        rr_interrupt interrupt;
+        rr_exception exception;
+        rr_syscall  syscall;
+        rr_io_input io_input;
+        rr_cfu cfu;
+        rr_random rand;
+        rr_gfu gfu;
+        rr_dma_done dma_done;
+    } event;
+    struct rr_event_log_t *next;
+    unsigned long inst_cnt;
+    unsigned long rip;
+    int user_mode;
+} rr_event_log;
+
+typedef struct rr_event_log_guest_t {
+    int type;
+    int id;
     union {
         rr_interrupt interrupt;
         rr_exception exception;
@@ -111,10 +143,9 @@ typedef struct rr_event_log_t{
         rr_random rand;
         rr_gfu gfu;
     } event;
-    struct rr_event_log_t *next;
     unsigned long inst_cnt;
     unsigned long rip;
-} rr_event_log;
+} rr_event_log_guest;
 
 typedef struct rr_mem_access_log_t {
     unsigned long gpa;
@@ -134,6 +165,8 @@ struct rr_event_info {
 
 struct rr_record_data {
     unsigned long shm_base_addr;
+    int enable_trace;
+    unsigned long trace_interval;
 };
 
 typedef struct rr_event_guest_queue_header_t {
@@ -146,23 +179,6 @@ typedef struct rr_event_guest_queue_header_t {
     unsigned long total_size;
     unsigned long rotated_bytes;
 } rr_event_guest_queue_header;
-
-
-typedef struct rr_event_log_guest_t {
-    int type;
-    int id;
-    union {
-        rr_interrupt interrupt;
-        rr_exception exception;
-        rr_syscall  syscall;
-        rr_io_input io_input;
-        rr_cfu cfu;
-        rr_random rand;
-        rr_gfu gfu;
-    } event;
-    unsigned long inst_cnt;
-    unsigned long rip;
-} rr_event_log_guest;
 
 
 typedef struct rr_event_entry_header_t {

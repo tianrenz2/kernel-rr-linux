@@ -249,6 +249,20 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
     rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_IO_IN);
 }
 
+static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
+{
+    unsigned long *tsc_val = (unsigned long *)opaque;    
+    rr_io_input event = {
+        .value = *tsc_val,
+        .inst_cnt = kvm_get_inst_cnt(vcpu),
+        .rip = kvm_get_linear_rip(vcpu),
+        .id = vcpu->vcpu_id,
+    };
+
+    // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
+    rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_RDTSC);
+}
+
 static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
     if (!ivshmem_base_addr)
@@ -1086,6 +1100,12 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
     case EVENT_TYPE_INTERRUPT:
         // handle_event_interrupt(vcpu, opaque);
         handle_event_interrupt_shm(vcpu, opaque);
+        break;
+    case EVENT_TYPE_IO_IN:
+        handle_event_io_in_shm(vcpu, opaque);
+        break;
+    case EVENT_TYPE_RDTSC:
+        handle_event_rdtsc_shm(vcpu, opaque);
         break;
     case EVENT_TYPE_EXCEPTION:
         break;
