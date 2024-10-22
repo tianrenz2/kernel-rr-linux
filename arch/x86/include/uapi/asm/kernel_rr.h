@@ -147,6 +147,23 @@ typedef struct rr_event_log_guest_t {
     unsigned long rip;
 } rr_event_log_guest;
 
+typedef struct rr_event_guest_queue_header_t {
+    unsigned int current_pos;
+    unsigned int total_pos;
+    unsigned int header_size;
+    unsigned int entry_size;
+    unsigned int rr_enabled;
+    unsigned long current_byte;
+    unsigned long total_size;
+    unsigned long rotated_bytes;
+} rr_event_guest_queue_header;
+
+
+typedef struct rr_event_entry_header_t {
+    int type;
+} rr_event_entry_header;
+
+
 typedef struct rr_mem_access_log_t {
     unsigned long gpa;
     unsigned long rip;
@@ -168,21 +185,5 @@ struct rr_record_data {
     int enable_trace;
     unsigned long trace_interval;
 };
-
-typedef struct rr_event_guest_queue_header_t {
-    unsigned int current_pos;
-    unsigned int total_pos;
-    unsigned int header_size;
-    unsigned int entry_size;
-    unsigned int rr_enabled;
-    unsigned long current_byte;
-    unsigned long total_size;
-    unsigned long rotated_bytes;
-} rr_event_guest_queue_header;
-
-
-typedef struct rr_event_entry_header_t {
-    int type;
-} rr_event_entry_header;
 
 #endif

@@ -17,6 +17,9 @@
 
 #define QUEUE_SIZE_MB 4096;
 
+
+DEFINE_SPINLOCK(queue_lock);
+
 int in_record = 0;
 int in_replay = 0;
 
@@ -102,9 +105,9 @@ void rr_acquire_exec(struct kvm_vcpu *vcpu)
 
     while (!arch_spin_trylock(&exec_lock)) {
     	if (!in_record){
-		printk(KERN_INFO "%d record end", vcpu->vcpu_id);
-		return;
-	}
+            printk(KERN_INFO "%d record end", vcpu->vcpu_id);
+            return;
+        }
     }
 
     current_owner = vcpu->vcpu_id;
@@ -155,9 +158,11 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
     if (!ivshmem_base_addr)
         return;
 
+    spin_lock(&queue_lock);
+
     if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to read from user memory\n");
-        return;
+        goto out;
     }
 
     if (header.current_byte + \
@@ -172,7 +177,7 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
         &entry_header, sizeof(rr_event_entry_header))) {
         printk(KERN_WARNING "Failed to copy to user memory\n");
-        return;
+        goto out;
     }
     header.current_byte += sizeof(rr_event_entry_header);
 
@@ -192,6 +197,9 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
         &header, sizeof(rr_event_guest_queue_header))) {
         printk(KERN_WARNING "Failed to copy from user memory\n");
     }
+
+out:
+    spin_unlock(&queue_lock);
 }
 
 static void rr_init_shm_queue(void)
