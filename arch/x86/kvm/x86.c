@@ -9509,6 +9509,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		printk(KERN_INFO "End record, result buffer 0x%lx", a0);
 		vcpu->kvm->end_record = true;
 		put_result_buffer(a0);
+		rr_set_in_record_all(vcpu->kvm, 0);
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
