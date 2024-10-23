@@ -9510,6 +9510,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		vcpu->kvm->end_record = true;
 		put_result_buffer(a0);
 		rr_set_in_record_all(vcpu->kvm, 0);
+		rr_release_exec(vcpu);
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
@@ -10368,11 +10369,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		goto cancel_injection;
 	}
 
-	preempt_disable();
-
 	if (rr_in_record()) {
 		rr_acquire_exec(vcpu);
 	}
+
+	preempt_disable();
 
 	static_call(kvm_x86_prepare_guest_switch)(vcpu);
 

@@ -6,6 +6,7 @@
 #include <linux/sched.h>
 #include <linux/timekeeping.h>
 #include <linux/spinlock.h>
+#include <linux/mutex.h>
 
 #include "x86.h"
 #include "kvm_cache_regs.h"
@@ -19,6 +20,7 @@
 
 
 DEFINE_SPINLOCK(queue_lock);
+static DEFINE_MUTEX(exec_lock);
 
 int in_record = 0;
 int in_replay = 0;
@@ -93,26 +95,28 @@ static struct timespec64 start_time;
 
 /* ====== SMP Serialization functions ======== */
 
-static arch_spinlock_t exec_lock = __ARCH_SPIN_LOCK_UNLOCKED;
+// static arch_spinlock_t exec_lock = __ARCH_SPIN_LOCK_UNLOCKED;
 volatile int current_owner = -1;
 
 void rr_acquire_exec(struct kvm_vcpu *vcpu)
 {
+    if (!in_record)
+        return;
+
     if (current_owner == vcpu->vcpu_id)
         return;
 
     atomic_set(&vcpu->waiting, 1);
 
-    while (!arch_spin_trylock(&exec_lock)) {
-    	if (!in_record){
-            printk(KERN_INFO "%d record end", vcpu->vcpu_id);
-            return;
-        }
-    }
+    mutex_lock(&exec_lock);
 
     current_owner = vcpu->vcpu_id;
     // printk(KERN_INFO "%d acquired lock", current_owner);
     atomic_set(&vcpu->waiting, 0);
+
+    if (!in_record) {
+        rr_release_exec(vcpu);
+    }
 }
 EXPORT_SYMBOL_GPL(rr_acquire_exec);
 
@@ -126,7 +130,7 @@ void rr_release_exec(struct kvm_vcpu *vcpu)
 
     current_owner = -1;
 
-    arch_spin_unlock(&exec_lock);
+    mutex_unlock(&exec_lock);
     // printk(KERN_INFO "vcpu %d released the lock", vcpu->vcpu_id);
 }
 EXPORT_SYMBOL_GPL(rr_release_exec);
