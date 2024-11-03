@@ -53,4 +53,5 @@ void rr_sync_inst_cnt(struct kvm_vcpu *vcpu);
 void put_result_buffer(unsigned long user_addr);
 unsigned long get_result_buffer(void);
 void set_buffer_inject_flag(int bit);
+int rr_queue_full(void);
 #endif /* __KVM_X86_KERNEL_RR_H */

@@ -792,6 +792,7 @@ struct kvm {
 
 	bool start_record;
 	bool end_record;
+	bool rr_queue_full;
 };
 
 #define kvm_err(fmt, ...) \

@@ -854,6 +854,15 @@ void kvm_queue_exception_p(struct kvm_vcpu *vcpu, unsigned nr,
 			   unsigned long payload)
 {
 	if (nr == DB_VECTOR) {
+		if (rr_in_record()) {
+			struct rr_exception_detail detail = {
+				.vector = nr,
+				.dr6 = payload
+			};
+
+			rr_record_event(vcpu, EVENT_TYPE_EXCEPTION, &detail);
+		}
+		
 		printk(KERN_INFO "rr kvm_queue_exception_p\n");
 	}
 
@@ -9643,6 +9652,12 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
+	case 102: {
+		printk(KERN_INFO "RR Queue is full");
+		vcpu->kvm->rr_queue_full = true;
+		return kvm_skip_emulated_instruction(vcpu);
+	}
+
 	default:
 		ret = -KVM_ENOSYS;
 		break;
@@ -10476,6 +10491,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 			kvm_stop_inst_cnt(vcpu);
 	}
 
+	if (rr_in_record() && rr_queue_full()) {
+		r = -103;
+		goto out;
+	}
+
 	if (kvm_check_request(KVM_REQ_EVENT, vcpu) || req_int_win ||
 	    kvm_xen_has_interrupt(vcpu)) {
 		++vcpu->stat.req_event;
@@ -10715,6 +10735,11 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 	if (vcpu->kvm->end_record) {
 		vcpu->kvm->end_record = false;
 		r = -101;
+	}
+
+	if (vcpu->kvm->rr_queue_full) {
+		vcpu->kvm->rr_queue_full = false;
+		r = -103;
 	}
 
 	if (rr_in_record()) {

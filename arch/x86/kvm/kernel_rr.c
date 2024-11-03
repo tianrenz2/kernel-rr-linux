@@ -3,6 +3,7 @@
 #include <asm/uaccess.h>
 #include <linux/buffer_head.h>
 #include <linux/spinlock.h>
+#include <asm/debugreg.h>
 
 #include "x86.h"
 #include "kvm_cache_regs.h"
@@ -90,8 +91,6 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
 		size > header.total_size) {
         printk(KERN_WARNING "RR queue is full, drop from start, current_byte=%lu\n",
                header.current_byte);
-        header.rotated_bytes += header.current_byte;
-        header.current_byte = header.header_size;
     }
 
     if (__copy_to_user((void __user *)(ivshmem_base_addr + header.current_byte),
@@ -173,6 +172,25 @@ static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
 
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_RDTSC);
+}
+
+static void handle_event_exception_shm(struct kvm_vcpu *vcpu, void *opaque)
+{
+    struct rr_exception_detail *excp = (struct rr_exception_detail *)opaque;
+    unsigned long dr6;
+    struct kvm_sregs sregs;
+
+    rr_exception event = {
+        .id = vcpu->vcpu_id,
+        .exception_index = excp->vector,
+        .cr2 = excp->dr6,
+        .inst_cnt = kvm_get_inst_cnt(vcpu),
+    };
+
+    rr_get_sregs(vcpu, &sregs);
+    rr_get_regs(vcpu, &event.regs);
+
+    rr_append_to_queue(&event, sizeof(rr_exception), EVENT_TYPE_EXCEPTION);
 }
 
 /* =================== */
@@ -325,40 +343,6 @@ static void rr_insert_event_log(rr_event_log *event)
     rr_event_log_tail->next = NULL;
 
     spin_unlock(&queue_lock);
-}
-
-// Deprecated: old way of recording exception
-static void handle_event_exception(struct kvm_vcpu *vcpu, void *opaque)
-{
-    struct kvm_regs *regs;
-    rr_event_log *event_log;
-    rr_exception *except;
-
-	regs = kzalloc(sizeof(struct kvm_regs), GFP_KERNEL_ACCOUNT);
-    event_log = kmalloc(sizeof(rr_event_log), GFP_KERNEL);
-
-    except = (rr_exception *)opaque;
-
-    rr_get_regs(vcpu, regs);
-
-    switch (except->exception_index) {
-        case PF_VECTOR:
-            except->error_code = get_rsi(vcpu);
-            except->cr2 = vcpu->arch.cr2;
-            // printk(KERN_INFO "error code: %d\n", except->error_code);
-            break;
-        default:
-            return;
-    }
-
-    except->regs = *regs;
-
-    event_log->type = EVENT_TYPE_EXCEPTION;
-    event_log->event.exception = *except;
-    event_log->next = NULL;
-
-    if (rr_post_handle_event(vcpu, event_log))
-        rr_insert_event_log(event_log);
 }
 
 // Deprecated: old way of recording syscall
@@ -982,6 +966,23 @@ void rr_sync_inst_cnt(struct kvm_vcpu *vcpu)
     rr_append_to_queue(&event, sizeof(rr_event_log_guest), EVENT_TYPE_INST_SYNC);
 }
 
+int rr_queue_full(void)
+{
+    rr_event_guest_queue_header header;
+
+    if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
+        printk(KERN_WARNING "Failed to read from user memory\n");
+    }
+
+    if (header.current_byte + \
+		sizeof(rr_event_entry_header) + \
+		sizeof(rr_interrupt) >= header.total_size) {
+        return 1;
+    }
+
+    return 0;
+}
+
 void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
 {
     switch (event_type)
@@ -1003,7 +1004,7 @@ void rr_record_event(struct kvm_vcpu *vcpu, int event_type, void *opaque)
         }
         break;
     case EVENT_TYPE_EXCEPTION:
-        handle_event_exception(vcpu, opaque);
+        handle_event_exception_shm(vcpu, opaque);
         break;
     case EVENT_TYPE_SYSCALL:
         handle_event_syscall(vcpu, opaque);

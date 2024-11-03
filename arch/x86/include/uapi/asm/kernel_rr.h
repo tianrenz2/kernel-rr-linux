@@ -89,9 +89,10 @@ typedef struct {
     int id;
     int exception_index;
     int error_code;
-    unsigned long cr2;
+    unsigned long cr2, cr3;
     struct kvm_regs regs;
     unsigned long spin_count;
+    unsigned long inst_cnt;
 } rr_exception;
 
 typedef struct {
@@ -185,6 +186,11 @@ struct rr_record_data {
     unsigned long shm_base_addr;
     int enable_trace;
     unsigned long trace_interval;
+};
+
+struct rr_exception_detail {
+    unsigned vector;
+    unsigned long dr6;
 };
 
 #define ROUND_INSTRUCTION_NUMBER 50000
