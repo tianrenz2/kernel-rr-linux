@@ -7602,7 +7602,7 @@ static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
 
 	complete_emulator_pio_in(vcpu, val);
 
-	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
+	if(rr_in_record()) {
 		rr_record_event(vcpu, EVENT_TYPE_IO_IN, val);
 	}
 
