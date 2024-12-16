@@ -7742,11 +7742,11 @@ static int emulator_pio_in(struct kvm_vcpu *vcpu, int size,
 		/* Results already available, fall through.  */
 	}
 
-	complete_emulator_pio_in(vcpu, val);
-
 	if(rr_in_record() && static_call(kvm_x86_get_cpl)(vcpu) == 0) {
-		rr_record_event(vcpu, EVENT_TYPE_IO_IN, val);
+		rr_record_event(vcpu, EVENT_TYPE_IO_IN, vcpu->arch.pio_data);
 	}
+
+	complete_emulator_pio_in(vcpu, val);
 
 	return 1;
 }
@@ -10935,6 +10935,10 @@ static int complete_emulated_mmio(struct kvm_vcpu *vcpu)
 	run->mmio.len = min(8u, frag->len);
 	run->mmio.is_write = vcpu->mmio_is_write;
 	vcpu->arch.complete_userspace_io = complete_emulated_mmio;
+	
+	if (!run->mmio.is_write)
+		printk(KERN_INFO "MMIO exit");
+
 	return 0;
 }
 

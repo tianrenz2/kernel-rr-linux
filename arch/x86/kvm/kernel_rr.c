@@ -121,16 +121,33 @@ static void rr_append_to_queue(void *event, unsigned long size, int type)
 
 static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
-    unsigned long *io_val = (unsigned long *)opaque;
+    void *io_val = opaque;
+    // unsigned long inst_cnt, rip = kvm_get_inst_cnt(vcpu), kvm_get_linear_rip(vcpu);
+    // int id = vcpu->vcpu_id;
     rr_io_input event = {
-        .value = *io_val,
+        .value = *((unsigned long *)io_val),
         .inst_cnt = kvm_get_inst_cnt(vcpu),
         .rip = kvm_get_linear_rip(vcpu),
         .id = vcpu->vcpu_id,
     };
-    
+    int i;
+
+    if (vcpu->arch.pio.count > 0) {
+        // if (vcpu->arch.pio.count > 1)
+        //     printk(KERN_INFO "Repetitive pio inst %d, %lu", vcpu->arch.pio.count, event.inst_cnt);
+        // else
+        //     printk(KERN_INFO "original pio 0x%lx", *((unsigned long *)io_val));
+        for (i = 0; i < vcpu->arch.pio.count; i++) {
+            // event.value = *((unsigned long *)io_val);
+            memcpy(&event.value, io_val, vcpu->arch.pio.size);
+            rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_IO_IN);
+            io_val += vcpu->arch.pio.size;
+        }
+    } else {
+        event.value = *((unsigned long *)io_val);
+        rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_IO_IN);
+    }
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
-    rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_IO_IN);
 }
 
 static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
