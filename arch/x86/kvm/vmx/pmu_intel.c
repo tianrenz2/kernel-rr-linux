@@ -17,6 +17,7 @@
 #include "lapic.h"
 #include "nested.h"
 #include "pmu.h"
+#include "kernel_rr.h"
 
 #define MSR_PMC_FULL_WIDTH_BIT      (MSR_IA32_PMC0 - MSR_IA32_PERFCTR0)
 
@@ -39,9 +40,6 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
 	int i;
 
-	printk(KERN_WARNING "[reprogram_fixed_counters] data=%llx", data);
-	// dump_stack();
-
 	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
 		u8 new_ctrl = fixed_ctrl_field(data, i);
 		u8 old_ctrl = fixed_ctrl_field(pmu->fixed_ctr_ctrl, i);
@@ -63,7 +61,13 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 static void global_ctrl_changed(struct kvm_pmu *pmu, u64 data)
 {
 	int bit;
-	u64 diff = pmu->global_ctrl ^ data;
+	u64 diff;
+
+	if (rr_in_record()) {
+		data |= KRR_COUNTER_BIT;
+	}
+
+	diff = pmu->global_ctrl ^ data;
 
 	pmu->global_ctrl = data;
 
@@ -152,8 +156,8 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 
 	int index = array_index_nospec(idx, num_counters);
 	
-	printk(KERN_WARNING "intel_rdpmc_ecx_to_pmc: fixed=%d counter idx=%d, rip=0x%lx\n",
-		   fixed, index, kvm_get_linear_rip(vcpu));
+	// printk(KERN_WARNING "intel_rdpmc_ecx_to_pmc: fixed=%d counter idx=%d, rip=0x%lx\n",
+	// 	   fixed, index, kvm_get_linear_rip(vcpu));
 
 	return &counters[index];
 }
@@ -476,6 +480,9 @@ static void setup_fixed_pmc_eventsel(struct kvm_pmu *pmu)
 	u32 event;
 	int i;
 
+	// if (rr_in_record())
+	// 	return;
+
 	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
 		pmc = &pmu->fixed_counters[i];
 		event = fixed_pmc_events[array_index_nospec(i, size)];
@@ -514,8 +521,11 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 
 	perf_get_x86_pmu_capability(&x86_pmu);
 
+	printk(KERN_INFO "intel_pmu_refresh");
+
+	// KRR reserves one counter
 	pmu->nr_arch_gp_counters = min_t(int, eax.split.num_counters,
-					 x86_pmu.num_counters_gp);
+					 x86_pmu.num_counters_gp - 1) + 1;
 	eax.split.bit_width = min_t(int, eax.split.bit_width, x86_pmu.bit_width_gp);
 	pmu->counter_bitmask[KVM_PMC_GP] = ((u64)1 << eax.split.bit_width) - 1;
 	eax.split.mask_length = min_t(int, eax.split.mask_length, x86_pmu.events_mask_len);

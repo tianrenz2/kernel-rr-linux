@@ -878,7 +878,9 @@ static inline int __do_cpuid_func(struct kvm_cpuid_array *array, u32 function)
 			memset(&cap, 0, sizeof(cap));
 
 		eax.split.version_id = min(cap.version, 2);
-		eax.split.num_counters = cap.num_counters_gp;
+
+		// KRR reserves one counter, so we hide one from the guest
+		eax.split.num_counters = cap.num_counters_gp - 1;
 		eax.split.bit_width = cap.bit_width_gp;
 		eax.split.mask_length = cap.events_mask_len;
 

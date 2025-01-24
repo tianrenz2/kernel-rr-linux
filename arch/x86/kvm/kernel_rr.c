@@ -132,6 +132,9 @@ static void handle_event_io_in_shm(struct kvm_vcpu *vcpu, void *opaque)
     };
     int i;
 
+    if (!event.inst_cnt)
+        printk(KERN_WARNING "kernel_rr inst_cnt 0");
+
     if (vcpu->arch.pio.count > 0) {
         // if (vcpu->arch.pio.count > 1)
         //     printk(KERN_INFO "Repetitive pio inst %d, %lu", vcpu->arch.pio.count, event.inst_cnt);
@@ -158,6 +161,7 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
         .vector = *int_vector,
         .inst_cnt = kvm_get_inst_cnt(vcpu),
         .rip = kvm_get_linear_rip(vcpu),
+        .from = 0,
     };
 
     rr_get_regs(vcpu, &event.regs);
@@ -424,6 +428,8 @@ static void handle_event_interrupt(struct kvm_vcpu *vcpu, void *opaque)
     event_log->rip = kvm_arch_vcpu_get_ip(vcpu);
 
     event_log->inst_cnt = kvm_get_inst_cnt(vcpu);
+
+    rr_get_regs(vcpu, &event_log->event.interrupt.regs);
 
     rr_insert_event_log(event_log);
 }

@@ -329,6 +329,12 @@ static void rr_setup_fixed_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 	r0 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR0, 0, false);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
 	r1 = __kvm_set_msr(vcpu, MSR_CORE_PERF_FIXED_CTR_CTRL, fixed_ctrl, false);
+
+	// if (vcpu->enable_trace) {
+	// 	vcpu->baseline_inst = 0xffffffffffff - vcpu->trace_interval;
+	// 	rr_reset_gp_inst_counter(vcpu, false, false);
+	// 	printk(KERN_INFO "Trace enabled, initial inst cnt %lu", kvm_get_inst_cnt(vcpu));
+	// }
 }
 
 void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow, bool breakpoint)
@@ -363,14 +369,14 @@ void rr_reset_gp_inst_counter(struct kvm_vcpu *vcpu, bool overflow, bool breakpo
 	// if (breakpoint)
 	// 	printk(KERN_INFO "breakpoint inst=%lu, exc_inst=%lu", inst_cnt, vcpu->executed_inst);
 
-	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, initial, false);
+	r0 = __kvm_set_msr(vcpu, MSR_P6_PERFCTR3, initial, false);
 	if (r0 != 0) {
 		printk(KERN_WARNING "Failed to set initial counter\n");
 	}
 }
 EXPORT_SYMBOL_GPL(rr_reset_gp_inst_counter);
 
-static void rr_reset_gp_inst_interval(struct kvm_vcpu *vcpu, unsigned long interval)
+static void rr_reset_inst_interval(struct kvm_vcpu *vcpu, unsigned long interval)
 {
 	vcpu->trace_interval = interval;
 }
@@ -380,7 +386,7 @@ static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 	int r0, r1, r2;
 	u64 global_ctrl, gp_ctrl = 0;
 
-	global_ctrl |= (1ULL << 0);
+	global_ctrl |= KRR_COUNTER_BIT;
 
 	// branch retired
 	// gp_ctrl |= 0xc4;
@@ -394,9 +400,9 @@ static void rr_setup_gp_counter(struct kvm_vcpu *vcpu, bool kernel_only)
 		gp_ctrl |= ARCH_PERFMON_EVENTSEL_USR;
 	
 	// Setting up MSRs for performance counting.
-	r0 = __kvm_set_msr(vcpu, MSR_IA32_PMC0, 0, false);
+	r0 = __kvm_set_msr(vcpu, MSR_P6_PERFCTR3, 0, false);
 	r2 = __kvm_set_msr(vcpu, MSR_CORE_PERF_GLOBAL_CTRL, global_ctrl, false);
-	r2 = __kvm_set_msr(vcpu, MSR_P6_EVNTSEL0, gp_ctrl, false);
+	r2 = __kvm_set_msr(vcpu, MSR_P6_EVNTSEL3, gp_ctrl, true);
 
 	if (vcpu->enable_trace) {
 		vcpu->baseline_inst = 0xffffffffffff - vcpu->trace_interval;
@@ -417,16 +423,21 @@ void kvm_start_inst_cnt(struct kvm_vcpu *vcpu)
 	vcpu->in_hype = true;
 	
 	rr_setup_gp_counter(vcpu, true);
+	// rr_setup_fixed_counter(vcpu, true);
 
-	vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	// vcpu->rr_start_point = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	vcpu->rr_start_point = kvm_get_inst_cnt(vcpu);
 	printk(KERN_WARNING "initial inst cnt: %llu\n", vcpu->rr_start_point);
 }
 
 u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 {
-	unsigned long inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	// unsigned long inst_cnt = kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS);
+	unsigned long long inst_cnt;
 
-	if (unlikely(vcpu->enable_trace)) {
+	__kvm_get_msr(vcpu, MSR_P6_PERFCTR3, &inst_cnt, false);
+
+	if (unlikely(vcpu->enable_trace && vcpu->trace_interval > 0)) {
 		if (inst_cnt < vcpu->baseline_inst) {
 			// There are cases when event record tries to the instruction number, but
 			// overflow just happened and has not been reset yet. If inst_cnt < vcpu->baseline_inst
@@ -437,6 +448,9 @@ u64 kvm_get_inst_cnt(struct kvm_vcpu *vcpu)
 
 		return vcpu->executed_inst + (inst_cnt - vcpu->baseline_inst - 1);
 	}
+
+	if (!inst_cnt)
+		printk(KERN_WARNING "inst_cnt is: %lu", inst_cnt);
 
 	return inst_cnt;
 }
@@ -1503,13 +1517,15 @@ int kvm_emulate_rdpmc(struct kvm_vcpu *vcpu)
 	u64 data;
 	unsigned int low, high;
 
-	if (kvm_get_linear_rip(vcpu) == 0xffffffff81034e60)
-		data = 0;
-	else {
-		if (kvm_pmu_rdpmc(vcpu, ecx, &data)) {
-			kvm_inject_gp(vcpu, 0);
-			return 1;
-		}
+	// printk(KERN_INFO "emulate rdpmc %lu", kvm_pmu_read_counter(vcpu, PERF_COUNT_HW_INSTRUCTIONS));
+
+	if (kvm_pmu_rdpmc(vcpu, ecx, &data)) {
+		kvm_inject_gp(vcpu, 0);
+		return 1;
+	}
+
+	if (rr_in_record()) {
+		rr_record_event(vcpu, EVENT_TYPE_IO_IN, &data);
 	}
 
 	kvm_rax_write(vcpu, (u32)data);
@@ -1896,6 +1912,11 @@ static int __kvm_set_msr(struct kvm_vcpu *vcpu, u32 index, u64 data,
 			 bool host_initiated)
 {
 	struct msr_data msr;
+
+	if(index == MSR_P6_EVNTSEL3 && !host_initiated) {
+		// printk(KERN_WARNING "Writing to KRR used msr 0x%lx", kvm_get_linear_rip(vcpu));
+		return 0;
+	}
 
 	if (!host_initiated && !kvm_msr_allowed(vcpu, index, KVM_MSR_FILTER_WRITE))
 		return KVM_MSR_RET_FILTERED;
@@ -5986,7 +6007,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	case KVM_RESET_INTERVAL: {
 		unsigned long interval;
 		copy_from_user(&interval, argp, sizeof(unsigned long));
-		rr_reset_gp_inst_interval(vcpu, interval);
+		rr_reset_inst_interval(vcpu, interval);
 		r = 0;
 		break;
 	}
@@ -6980,12 +7001,12 @@ static void kvm_init_msr_list(void)
 			break;
 		case MSR_ARCH_PERFMON_PERFCTR0 ... MSR_ARCH_PERFMON_PERFCTR0 + 17:
 			if (msrs_to_save_all[i] - MSR_ARCH_PERFMON_PERFCTR0 >=
-			    min(INTEL_PMC_MAX_GENERIC, x86_pmu.num_counters_gp))
+			    min(INTEL_PMC_MAX_GENERIC, x86_pmu.num_counters_gp - 1))
 				continue;
 			break;
 		case MSR_ARCH_PERFMON_EVENTSEL0 ... MSR_ARCH_PERFMON_EVENTSEL0 + 17:
 			if (msrs_to_save_all[i] - MSR_ARCH_PERFMON_EVENTSEL0 >=
-			    min(INTEL_PMC_MAX_GENERIC, x86_pmu.num_counters_gp))
+			    min(INTEL_PMC_MAX_GENERIC, x86_pmu.num_counters_gp - 1))
 				continue;
 			break;
 		case MSR_IA32_XFD:

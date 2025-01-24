@@ -17,6 +17,7 @@
 #define EVENT_TYPE_RELEASE   11
 #define EVENT_TYPE_INST_SYNC 12
 
+#define KRR_COUNTER_BIT 1ULL << 3
 
 #define CFU_BUFFER_SIZE     4096
 

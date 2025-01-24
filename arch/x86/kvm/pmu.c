@@ -20,6 +20,7 @@
 #include "cpuid.h"
 #include "lapic.h"
 #include "pmu.h"
+#include "kernel_rr.h"
 
 /* This is enough to filter the vast majority of currently defined events. */
 #define KVM_PMU_EVENT_FILTER_MAX_EVENTS 300
@@ -112,8 +113,8 @@ static void pmc_reprogram_counter(struct kvm_pmc *pmc, u32 type,
 		.config = config,
 	};
 
-	printk(KERN_INFO "counter: exclude_kernel=%d, exclude_user=%d\n",
-		   exclude_kernel, exclude_user);
+	printk(KERN_INFO "counter: exclude_kernel=%d, exclude_user=%d, pmc_type=%d\n",
+		   exclude_kernel, exclude_user, pmc->type);
 
 	if (type == PERF_TYPE_HARDWARE && config >= PERF_COUNT_HW_MAX)
 		return;
@@ -231,12 +232,14 @@ void reprogram_gp_counter(struct kvm_pmc *pmc, u64 eventsel)
 
 	pmc_release_perf_event(pmc);
 
-	printk(KERN_WARNING "[reprogram_gp_counter]: called\n");
+	printk(KERN_WARNING "[reprogram_gp_counter]: called, eventsel=%llx, type=%d, config=%llx, rip=0x%lx, inst_cnt=%lu\n",
+	       eventsel, type, config, kvm_get_linear_rip(pmc->vcpu), kvm_get_inst_cnt(pmc->vcpu));
 	pmc->current_config = eventsel;
 	pmc_reprogram_counter(pmc, type, config,
 			      !(eventsel & ARCH_PERFMON_EVENTSEL_USR),
 			      !(eventsel & ARCH_PERFMON_EVENTSEL_OS),
 			      eventsel & ARCH_PERFMON_EVENTSEL_INT);
+	printk(KERN_INFO "read after reprogram %lu", kvm_get_inst_cnt(pmc->vcpu));
 }
 EXPORT_SYMBOL_GPL(reprogram_gp_counter);
 
@@ -275,6 +278,7 @@ void reprogram_fixed_counter(struct kvm_pmc *pmc, u8 ctrl, int idx)
 			      !(en_field & 0x2), /* exclude user */
 			      !(en_field & 0x1), /* exclude kernel */
 			      pmi);
+	printk(KERN_INFO "read after reprogram fixed %lu", kvm_pmu_read_counter(pmc->vcpu, PERF_COUNT_HW_INSTRUCTIONS));
 }
 EXPORT_SYMBOL_GPL(reprogram_fixed_counter);
 
@@ -442,6 +446,7 @@ void kvm_pmu_refresh(struct kvm_vcpu *vcpu)
 void kvm_pmu_reset(struct kvm_vcpu *vcpu)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	printk(KERN_INFO "kvm_pmu_reset: called\n");
 
 	irq_work_sync(&pmu->irq_work);
 	kvm_x86_ops.pmu_ops->reset(vcpu);
@@ -593,13 +598,14 @@ u64 kvm_pmu_read_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
 	struct kvm_pmc *pmc;
 	int i;
 	bool event_match, cpl_match;
+	u64 cnt;
 
 	for_each_set_bit(i, pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX) {
 		pmc = kvm_x86_ops.pmu_ops->pmc_idx_to_pmc(pmu, i);
-		// if (!pmc) {
-		// 	printk(KERN_WARNING "No pmc\n");
-		// 	continue;
-		// }
+		if (!pmc) {
+			printk(KERN_WARNING "No pmc\n");
+			continue;
+		}
 
 		// if (!pmc_is_enabled(pmc)) {
 		// 	printk(KERN_WARNING "No enabled pmc\n");
@@ -618,13 +624,20 @@ u64 kvm_pmu_read_counter(struct kvm_vcpu *vcpu, u64 perf_hw_id)
 		cpl_match = cpl_is_matched(pmc);
 
 		if (event_match && cpl_match) {
-			return pmc_read_counter(pmc);
-		} 
+			cnt = pmc_read_counter(pmc);
+			if (!cnt) {
+				printk(KERN_WARNING "pmc_read_counter 0");
+			}
+			return cnt;
+		} else {
+			printk(KERN_WARNING "unmatched event_match=%d cpl_match=%d", event_match, cpl_match);
+		}
 		// else {
 		// 	printk(KERN_WARNING "Not inst counter, event_match=%d, cpl_match=%d\n", event_match, cpl_match);
 		// }
 	}
 
+	printk(KERN_WARNING "read 0");
 	return 0;
 }
 EXPORT_SYMBOL_GPL(kvm_pmu_read_counter);
