@@ -75,6 +75,45 @@ unsigned long get_result_buffer(void)
 
 /* ======== RR shared memory functions =========== */
 
+
+static void rr_modify_rdtsc(unsigned long inst_cnt, unsigned long rip)
+{
+    rr_event_guest_queue_header header;
+    rr_event_entry_header entry_header;
+    rr_io_input input;
+    unsigned long entry_size = sizeof(rr_io_input) + sizeof(rr_event_entry_header);
+
+    if (__copy_from_user(&header, (void __user *)ivshmem_base_addr, sizeof(rr_event_guest_queue_header))) {
+        printk(KERN_WARNING "Failed to read from user memory\n");
+        return;
+    }
+
+    if (__copy_from_user(&entry_header, (void __user *)ivshmem_base_addr + header.current_byte - entry_size, sizeof(rr_event_entry_header))) {
+        printk(KERN_WARNING "Failed to read from user memory\n");
+        return;
+    }
+
+    if (entry_header.type != EVENT_TYPE_RDTSC) {
+        printk(KERN_WARNING "Current not rdtsc\n");
+        return;
+    }
+
+    if (__copy_from_user(&input, (void __user *)ivshmem_base_addr + header.current_byte - entry_size + sizeof(rr_event_entry_header), sizeof(rr_io_input))) {
+        printk(KERN_WARNING "Failed to read from user memory\n");
+        return;
+    }
+
+    input.inst_cnt = inst_cnt;
+    input.rip = rip;
+
+    if (__copy_to_user((void __user *)ivshmem_base_addr + header.current_byte - entry_size + sizeof(rr_event_entry_header),
+                       &input, sizeof(rr_io_input))) {
+        printk(KERN_WARNING "Failed to write to user memory\n");
+        return;
+    }
+}
+
+
 static void rr_append_to_queue(void *event, unsigned long size, int type)
 {
     rr_event_guest_queue_header header;
@@ -183,16 +222,18 @@ static void handle_event_interrupt_shm(struct kvm_vcpu *vcpu, void *opaque)
 
 static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
 {
-    unsigned long *tsc_val = (unsigned long *)opaque;    
-    rr_io_input event = {
-        .value = *tsc_val,
-        .inst_cnt = kvm_get_inst_cnt(vcpu),
-        .rip = kvm_get_linear_rip(vcpu),
-        .id = vcpu->vcpu_id,
-    };
+    // unsigned long *tsc_val = (unsigned long *)opaque;    
+    // rr_io_input event = {
+    //     .value = *tsc_val,
+    //     .inst_cnt = kvm_get_inst_cnt(vcpu),
+    //     .rip = kvm_get_linear_rip(vcpu),
+    //     .id = vcpu->vcpu_id,
+    // };
+
+    rr_modify_rdtsc(kvm_get_inst_cnt(vcpu), kvm_get_linear_rip(vcpu));
 
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
-    rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_RDTSC);
+    // rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_RDTSC);
 }
 
 static void handle_event_exception_shm(struct kvm_vcpu *vcpu, void *opaque)

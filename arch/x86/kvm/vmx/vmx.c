@@ -2427,6 +2427,10 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	u32 _cpu_based_2nd_exec_control = 0;
 	u32 _vmexit_control = 0;
 	u32 _vmentry_control = 0;
+	// RDTSC should not trigger exit in production,
+	// otherwise the performance of some workloads is
+	// affected.
+	bool rr_trap_rdtsc = false;
 
 	memset(vmcs_conf, 0, sizeof(*vmcs_conf));
 	min = CPU_BASED_HLT_EXITING |
@@ -2443,6 +2447,10 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	      CPU_BASED_MONITOR_EXITING |
 	      CPU_BASED_INVLPG_EXITING |
 	      CPU_BASED_RDPMC_EXITING;
+
+	if (rr_trap_rdtsc) {
+		min |= CPU_BASED_RDTSC_EXITING;
+	}
 
 	opt = CPU_BASED_TPR_SHADOW |
 	      CPU_BASED_USE_MSR_BITMAPS |
@@ -5775,6 +5783,7 @@ static int (*kvm_vmx_exit_handlers[])(struct kvm_vcpu *vcpu) = {
 	[EXIT_REASON_PREEMPTION_TIMER]	      = handle_preemption_timer,
 	[EXIT_REASON_ENCLS]		      = handle_encls,
 	[EXIT_REASON_BUS_LOCK]                = handle_bus_lock_vmexit,
+	[EXIT_REASON_RDTSC] 		= handle_rdtsc,
 };
 
 static const int kvm_vmx_max_exit_handlers =
