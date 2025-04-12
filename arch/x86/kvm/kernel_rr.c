@@ -111,6 +111,10 @@ void rr_acquire_exec(struct kvm_vcpu *vcpu)
     mutex_lock(&exec_lock);
 
     current_owner = vcpu->vcpu_id;
+
+    if (put_user(current_owner, (int __user *)(ivshmem_base_addr + sizeof(rr_event_guest_queue_header)))) {
+        printk(KERN_WARNING "Failed to update owner id\n");
+    }
     // printk(KERN_INFO "%d acquired lock", current_owner);
     atomic_set(&vcpu->waiting, 0);
 
@@ -129,6 +133,9 @@ void rr_release_exec(struct kvm_vcpu *vcpu)
     // printk(KERN_INFO "%d release lock", current_owner);
 
     current_owner = -1;
+    if (put_user(current_owner, (int __user *)(ivshmem_base_addr + sizeof(rr_event_guest_queue_header)))) {
+        printk(KERN_WARNING "Failed to update owner id\n");
+    }
 
     mutex_unlock(&exec_lock);
     // printk(KERN_INFO "vcpu %d released the lock", vcpu->vcpu_id);
