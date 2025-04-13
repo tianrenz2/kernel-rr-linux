@@ -76,7 +76,7 @@ unsigned long get_result_buffer(void)
 /* ======== RR shared memory functions =========== */
 
 
-static void rr_modify_rdtsc(unsigned long inst_cnt, unsigned long rip)
+static void rr_modify_rdtsc(struct kvm_vcpu *vcpu, unsigned long inst_cnt, unsigned long rip)
 {
     rr_event_guest_queue_header header;
     rr_event_entry_header entry_header;
@@ -105,6 +105,7 @@ static void rr_modify_rdtsc(unsigned long inst_cnt, unsigned long rip)
 
     input.inst_cnt = inst_cnt;
     input.rip = rip;
+    input.id = vcpu->vcpu_id;
 
     if (__copy_to_user((void __user *)ivshmem_base_addr + header.current_byte - entry_size + sizeof(rr_event_entry_header),
                        &input, sizeof(rr_io_input))) {
@@ -230,7 +231,7 @@ static void handle_event_rdtsc_shm(struct kvm_vcpu *vcpu, void *opaque)
     //     .id = vcpu->vcpu_id,
     // };
 
-    rr_modify_rdtsc(kvm_get_inst_cnt(vcpu), kvm_get_linear_rip(vcpu));
+    rr_modify_rdtsc(vcpu, kvm_get_inst_cnt(vcpu), kvm_get_linear_rip(vcpu));
 
     // printk(KERN_INFO "rdtsc: inst=%lu\n", event.inst_cnt);
     // rr_append_to_queue(&event, sizeof(rr_io_input), EVENT_TYPE_RDTSC);
