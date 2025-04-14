@@ -9656,7 +9656,7 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 
 	case 20: {
 		if (rr_in_record())
-			rr_sync_inst_cnt(vcpu);
+			rr_sync_inst_cnt(vcpu, a0);
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 

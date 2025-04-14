@@ -1021,12 +1021,13 @@ static int get_lock_owner(void) {
     return cpu_id;
 }
 
-void rr_sync_inst_cnt(struct kvm_vcpu *vcpu)
+void rr_sync_inst_cnt(struct kvm_vcpu *vcpu, unsigned long spin_cnt)
 {
     rr_event_log_guest event = {};
     event.inst_cnt = kvm_get_inst_cnt(vcpu);
     event.rip = kvm_get_linear_rip(vcpu);
     event.id = vcpu->vcpu_id;
+    event.event.interrupt.spin_count = spin_cnt;
 
     rr_append_to_queue(&event, sizeof(rr_event_log_guest), EVENT_TYPE_INST_SYNC);
 }
