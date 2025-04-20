@@ -121,6 +121,9 @@ module_param_named(pml, enable_pml, bool, S_IRUGO);
 static bool __read_mostly dump_invalid_vmcs = 0;
 module_param(dump_invalid_vmcs, bool, 0644);
 
+static bool __read_mostly rr_trap_rdtsc = 0;
+module_param(rr_trap_rdtsc, bool, 0644);
+
 #define MSR_BITMAP_MODE_X2APIC		1
 #define MSR_BITMAP_MODE_X2APIC_APICV	2
 
@@ -2430,7 +2433,6 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	// RDTSC should not trigger exit in production,
 	// otherwise the performance of some workloads is
 	// affected.
-	bool rr_trap_rdtsc = false;
 
 	memset(vmcs_conf, 0, sizeof(*vmcs_conf));
 	min = CPU_BASED_HLT_EXITING |
@@ -2449,6 +2451,7 @@ static __init int setup_vmcs_config(struct vmcs_config *vmcs_conf,
 	      CPU_BASED_RDPMC_EXITING;
 
 	if (rr_trap_rdtsc) {
+		printk(KERN_INFO "rr_trap_rdtsc is enabled");
 		min |= CPU_BASED_RDTSC_EXITING;
 	}
 

@@ -32,6 +32,9 @@
 u32 kvm_cpu_caps[NR_KVM_CPU_CAPS] __read_mostly;
 EXPORT_SYMBOL_GPL(kvm_cpu_caps);
 
+bool __read_mostly rr_disable_avx = 0;
+module_param(rr_disable_avx, bool, 0644);
+
 u32 xstate_required_size(u64 xstate_bv, bool compacted)
 {
 	int feature_bit = 0;
@@ -528,20 +531,38 @@ void kvm_set_cpu_caps(void)
 	memcpy(&kvm_cpu_caps, &boot_cpu_data.x86_capability,
 	       sizeof(kvm_cpu_caps) - (NKVMCAPINTS * sizeof(*kvm_cpu_caps)));
 
-	kvm_cpu_cap_mask(CPUID_1_ECX,
-		/*
-		 * NOTE: MONITOR (and MWAIT) are emulated as NOP, but *not*
-		 * advertised to guests via CPUID!
-		 */
-		F(XMM3) | F(PCLMULQDQ) | 0 /* DTES64, MONITOR */ |
-		0 /* DS-CPL, VMX, SMX, EST */ |
-		0 /* TM2 */ | F(SSSE3) | 0 /* CNXT-ID */ | 0 /* Reserved */ |
-		F(FMA) | F(CX16) | 0 /* xTPR Update */ | F(PDCM) |
-		F(PCID) & 0 /* Reserved, DCA */ | F(XMM4_1) |
-		F(XMM4_2) | F(X2APIC) & 0 | F(MOVBE) | F(POPCNT) |
-		0 /* Reserved*/ | F(AES) | F(XSAVE) | 0 /* OSXSAVE */ | F(AVX) |
-		F(F16C) | F(RDRAND)
-	);
+	if (rr_disable_avx) {
+		kvm_cpu_cap_mask(CPUID_1_ECX,
+			/*
+			 * NOTE: MONITOR (and MWAIT) are emulated as NOP, but *not*
+			 * advertised to guests via CPUID!
+			 */
+			F(XMM3) | F(PCLMULQDQ) | 0 /* DTES64, MONITOR */ |
+			0 /* DS-CPL, VMX, SMX, EST */ |
+			0 /* TM2 */ | F(SSSE3) | 0 /* CNXT-ID */ | 0 /* Reserved */ |
+			F(FMA) | F(CX16) | 0 /* xTPR Update */ | F(PDCM) |
+			F(PCID) & 0 /* Reserved, DCA */ | F(XMM4_1) |
+			F(XMM4_2) | F(X2APIC) & 0 | F(MOVBE) | F(POPCNT) |
+			0 /* Reserved*/ | F(AES) | F(XSAVE) | 0 /* OSXSAVE */ | F(AVX) & 0 |
+			F(F16C) | F(RDRAND)
+		);
+	} else {
+		kvm_cpu_cap_mask(CPUID_1_ECX,
+			/*
+			 * NOTE: MONITOR (and MWAIT) are emulated as NOP, but *not*
+			 * advertised to guests via CPUID!
+			 */
+			F(XMM3) | F(PCLMULQDQ) | 0 /* DTES64, MONITOR */ |
+			0 /* DS-CPL, VMX, SMX, EST */ |
+			0 /* TM2 */ | F(SSSE3) | 0 /* CNXT-ID */ | 0 /* Reserved */ |
+			F(FMA) | F(CX16) | 0 /* xTPR Update */ | F(PDCM) |
+			F(PCID) & 0 /* Reserved, DCA */ | F(XMM4_1) |
+			F(XMM4_2) | F(X2APIC) & 0 | F(MOVBE) | F(POPCNT) |
+			0 /* Reserved*/ | F(AES) | F(XSAVE) | 0 /* OSXSAVE */ | F(AVX) |
+			F(F16C) | F(RDRAND)
+		);
+	}
+
 	/* KVM emulates x2apic in software irrespective of host support. */
 	// kvm_cpu_cap_set(X86_FEATURE_X2APIC);
 
@@ -556,14 +577,25 @@ void kvm_set_cpu_caps(void)
 		0 /* HTT, TM, Reserved, PBE */
 	);
 
-	kvm_cpu_cap_mask(CPUID_7_0_EBX,
-		F(FSGSBASE) | F(SGX) | F(BMI1) | F(HLE) | F(AVX2) |
-		F(FDP_EXCPTN_ONLY) | F(SMEP) | F(BMI2) | F(ERMS) | F(INVPCID) |
-		F(RTM) | F(ZERO_FCS_FDS) | 0 /*MPX*/ | F(AVX512F) |
-		F(AVX512DQ) | F(RDSEED) | F(ADX) | F(SMAP) | F(AVX512IFMA) |
-		F(CLFLUSHOPT) | F(CLWB) | 0 /*INTEL_PT*/ | F(AVX512PF) |
-		F(AVX512ER) | F(AVX512CD) | F(SHA_NI) | F(AVX512BW) |
-		F(AVX512VL));
+	if (rr_disable_avx) {
+		kvm_cpu_cap_mask(CPUID_7_0_EBX,
+			F(FSGSBASE) | F(SGX) | F(BMI1) | F(HLE) | F(AVX2) & 0 |
+			F(FDP_EXCPTN_ONLY) | F(SMEP) | F(BMI2) | F(ERMS) | F(INVPCID) |
+			F(RTM) | F(ZERO_FCS_FDS) | 0 /*MPX*/ | F(AVX512F) |
+			F(AVX512DQ) | F(RDSEED) | F(ADX) | F(SMAP) | F(AVX512IFMA) |
+			F(CLFLUSHOPT) | F(CLWB) | 0 /*INTEL_PT*/ | F(AVX512PF) |
+			F(AVX512ER) | F(AVX512CD) | F(SHA_NI) | F(AVX512BW) |
+			F(AVX512VL));
+	} else {
+		kvm_cpu_cap_mask(CPUID_7_0_EBX,
+			F(FSGSBASE) | F(SGX) | F(BMI1) | F(HLE) | F(AVX2) |
+			F(FDP_EXCPTN_ONLY) | F(SMEP) | F(BMI2) | F(ERMS) | F(INVPCID) |
+			F(RTM) | F(ZERO_FCS_FDS) | 0 /*MPX*/ | F(AVX512F) |
+			F(AVX512DQ) | F(RDSEED) | F(ADX) | F(SMAP) | F(AVX512IFMA) |
+			F(CLFLUSHOPT) | F(CLWB) | 0 /*INTEL_PT*/ | F(AVX512PF) |
+			F(AVX512ER) | F(AVX512CD) | F(SHA_NI) | F(AVX512BW) |
+			F(AVX512VL));
+	}
 
 	kvm_cpu_cap_mask(CPUID_7_ECX,
 		F(AVX512VBMI) | F(LA57) | F(PKU) | 0 /*OSPKE*/ | F(RDPID) |
