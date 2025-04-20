@@ -100,15 +100,24 @@ volatile int current_owner = -1;
 
 void rr_acquire_exec(struct kvm_vcpu *vcpu)
 {
-    if (!in_record)
+    if (current_owner == vcpu->vcpu_id) {
+        if (!in_record) {
+            rr_release_exec(vcpu);
+        }
         return;
+    }
 
-    if (current_owner == vcpu->vcpu_id)
+    if (!in_record)
         return;
 
     atomic_set(&vcpu->waiting, 1);
 
     mutex_lock(&exec_lock);
+
+    if (!in_record) {
+        mutex_unlock(&exec_lock);
+        return;
+    }
 
     current_owner = vcpu->vcpu_id;
 
@@ -117,10 +126,6 @@ void rr_acquire_exec(struct kvm_vcpu *vcpu)
     }
     // printk(KERN_INFO "%d acquired lock", current_owner);
     atomic_set(&vcpu->waiting, 0);
-
-    if (!in_record) {
-        rr_release_exec(vcpu);
-    }
 }
 EXPORT_SYMBOL_GPL(rr_acquire_exec);
 
@@ -1000,10 +1005,13 @@ void rr_set_in_record_all(struct kvm *kvm, int record)
         ktime_get_real_ts64(&start_time);
         printk(KERN_INFO "Start %ld", start_time.tv_sec);
         user_io = 0;
+    } else {
+        printk(KERN_INFO "End record for all");
     }
 
     kvm_for_each_vcpu(i, vcpu, kvm) {
         rr_set_in_record(vcpu, record);
+        kvm_vcpu_kick(vcpu);
     }
 }
 
