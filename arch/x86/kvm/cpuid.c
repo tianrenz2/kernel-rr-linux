@@ -584,7 +584,7 @@ void kvm_set_cpu_caps(void)
 			F(RTM) | F(ZERO_FCS_FDS) | 0 /*MPX*/ | F(AVX512F) & 0 |
 			F(AVX512DQ) & 0 | F(RDSEED) | F(ADX) | F(SMAP) | F(AVX512IFMA) & 0 |
 			F(CLFLUSHOPT) | F(CLWB) | 0 /*INTEL_PT*/ | F(AVX512PF) & 0 |
-			F(AVX512ER) & 0 | F(AVX512CD) & 0 | F(SHA_NI) | F(AVX512BW) & 0 |
+			F(AVX512ER) & 0 | F(AVX512CD) & 0 | F(SHA_NI) & 0 | F(AVX512BW) & 0 |
 			F(AVX512VL) & 0);
 	} else {
 		kvm_cpu_cap_mask(CPUID_7_0_EBX,
