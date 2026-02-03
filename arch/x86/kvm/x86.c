@@ -9630,14 +9630,14 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		ret = 0;
 		return kvm_skip_emulated_instruction(vcpu);
 	}
-	case 17: {
+	case 17: { /* For testing spinlock count only, not actually used */
 		if (rr_in_record(vcpu->kvm)) {
 			vcpu->begin_spin_cnt = kvm_get_inst_cnt(vcpu);
 		}
 
 		return kvm_skip_emulated_instruction(vcpu);
 	}
-	case 18: {
+	case 18: { /* For testing spinlock count only, not actually used */
 		unsigned long inst_diff = kvm_get_inst_cnt(vcpu) - vcpu->begin_spin_cnt;
 		if (rr_in_record(vcpu->kvm)) {
 			BUG_ON(a1 * 3 + 5 != inst_diff);
@@ -9646,26 +9646,26 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
-	case 20: {
+	case KVM_INSTRUCTION_SYNC: {
 		if (rr_in_record(vcpu->kvm))
 			rr_sync_inst_cnt(vcpu, a0);
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
-	case 100: {
+	case KVM_HC_RR_START_RECORD: {
 		printk(KERN_DEBUG "Start record");
 		vcpu->kvm->start_record = true;
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
-	case 101: {
+	case KVM_HC_RR_END_RECORD: {
 		printk(KERN_DEBUG "End record, result buffer 0x%lx", a0);
 		vcpu->kvm->end_record = true;
 		put_result_buffer(a0);
 		return kvm_skip_emulated_instruction(vcpu);
 	}
 
-	case 102: {
+	case KVM_HC_RR_QUEUE_FULL: {
 		printk(KERN_INFO "RR Queue is full");
 		vcpu->kvm->rr_queue_full = true;
 		return kvm_skip_emulated_instruction(vcpu);

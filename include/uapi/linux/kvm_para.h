@@ -34,7 +34,10 @@
 #define KVM_HC_RR_STRNCPY			14
 #define KVM_HC_RR_RANDOM			15
 #define KVM_HC_RR_GETUSER			16
-#define KVM_HC_RR_OTHER			    17
+#define KVM_INSTRUCTION_SYNC            20
+#define KVM_HC_RR_START_RECORD		100
+#define KVM_HC_RR_END_RECORD		101
+#define KVM_HC_RR_QUEUE_FULL		102
 
 /*
  * hypercalls use architecture specific
